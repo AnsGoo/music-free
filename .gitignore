@@ -1,0 +1,34 @@
+# Dependencies
+node_modules/
+pnpm-lock.yaml
+
+# Database
+data/
+
+# Music files
+music/
+*.mp3
+*.wav
+*.flac
+*.ogg
+
+# Environment variables
+.env
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Test files
+coverage/
+
+# Build files
+dist/
+build/

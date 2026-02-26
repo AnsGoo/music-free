@@ -1,0 +1,701 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>音乐服务器</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f5f5f5;
+            color: #333;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        header {
+            background-color: #4CAF50;
+            color: white;
+            padding: 10px 0;
+            text-align: center;
+            margin-bottom: 20px;
+        }
+
+        h1 {
+            font-size: 24px;
+        }
+
+        .login-form {
+            background-color: white;
+            padding: 20px;
+            border-radius: 5px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            max-width: 400px;
+            margin: 50px auto;
+        }
+
+        .login-form h2 {
+            margin-bottom: 20px;
+            text-align: center;
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 5px;
+        }
+
+        .form-group input {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 3px;
+        }
+
+        .btn {
+            display: inline-block;
+            padding: 10px 20px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 3px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+
+        .btn:hover {
+            background-color: #45a049;
+        }
+
+        .btn-block {
+            width: 100%;
+        }
+
+        .content {
+            display: none;
+        }
+
+        .nav {
+            background-color: white;
+            padding: 10px;
+            border-radius: 5px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+
+        .nav ul {
+            list-style: none;
+            display: flex;
+            gap: 10px;
+        }
+
+        .nav li {
+            margin-right: 10px;
+        }
+
+        .nav a {
+            text-decoration: none;
+            color: #333;
+            padding: 5px 10px;
+            border-radius: 3px;
+        }
+
+        .nav a:hover {
+            background-color: #f0f0f0;
+        }
+
+        .section {
+            background-color: white;
+            padding: 20px;
+            border-radius: 5px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+
+        .section h2 {
+            margin-bottom: 15px;
+        }
+
+        .search-bar {
+            display: flex;
+            margin-bottom: 20px;
+        }
+
+        .search-bar input {
+            flex: 1;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 3px 0 0 3px;
+        }
+
+        .search-bar button {
+            padding: 10px 20px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 0 3px 3px 0;
+            cursor: pointer;
+        }
+
+        .list {
+            list-style: none;
+        }
+
+        .list li {
+            padding: 10px;
+            border-bottom: 1px solid #eee;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .list li:hover {
+            background-color: #f9f9f9;
+        }
+
+        .list li:last-child {
+            border-bottom: none;
+        }
+
+        .play-btn {
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 3px;
+            padding: 5px 10px;
+            cursor: pointer;
+        }
+
+        .play-btn:hover {
+            background-color: #45a049;
+        }
+
+        .player {
+            background-color: white;
+            padding: 10px;
+            border-radius: 5px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            z-index: 1000;
+        }
+
+        .player-content {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .player-info {
+            flex: 1;
+        }
+
+        .player-controls {
+            display: flex;
+            gap: 10px;
+        }
+
+        .player audio {
+            width: 100%;
+            margin-top: 10px;
+        }
+
+        .create-playlist {
+            margin-bottom: 20px;
+        }
+
+        .create-playlist input {
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 3px;
+            margin-right: 10px;
+        }
+
+        @media (max-width: 768px) {
+            .nav ul {
+                flex-direction: column;
+            }
+
+            .player-content {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+
+            .player-controls {
+                margin-top: 10px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>音乐服务器</h1>
+    </header>
+
+    <div class="container">
+        <!-- 登录表单 -->
+        <div class="login-form" id="loginForm">
+            <h2>登录</h2>
+            <div class="form-group">
+                <label for="username">用户名</label>
+                <input type="text" id="username" placeholder="admin" value="admin">
+            </div>
+            <div class="form-group">
+                <label for="password">密码</label>
+                <input type="password" id="password" placeholder="admin" value="admin">
+            </div>
+            <button class="btn btn-block" onclick="login()">登录</button>
+        </div>
+
+        <!-- 主内容 -->
+        <div class="content" id="content">
+            <!-- 导航 -->
+            <nav class="nav">
+                <ul>
+                    <li><a href="#" onclick="showSection('home')">首页</a></li>
+                    <li><a href="#" onclick="showSection('artists')">艺术家</a></li>
+                    <li><a href="#" onclick="showSection('albums')">专辑</a></li>
+                    <li><a href="#" onclick="showSection('playlists')">歌单</a></li>
+                    <li><a href="#" onclick="logout()">退出</a></li>
+                </ul>
+            </nav>
+
+            <!-- 首页 -->
+            <div class="section" id="home">
+                <h2>首页</h2>
+                <div class="search-bar">
+                    <input type="text" id="searchQuery" placeholder="搜索音乐...">
+                    <button onclick="searchMusic()">搜索</button>
+                </div>
+                <h3>热门歌曲</h3>
+                <ul class="list" id="songsList">
+                    <!-- 歌曲列表将通过JavaScript动态添加 -->
+                </ul>
+            </div>
+
+            <!-- 艺术家 -->
+            <div class="section" id="artists" style="display: none;">
+                <h2>艺术家</h2>
+                <ul class="list" id="artistsList">
+                    <!-- 艺术家列表将通过JavaScript动态添加 -->
+                </ul>
+            </div>
+
+            <!-- 专辑 -->
+            <div class="section" id="albums" style="display: none;">
+                <h2>专辑</h2>
+                <ul class="list" id="albumsList">
+                    <!-- 专辑列表将通过JavaScript动态添加 -->
+                </ul>
+            </div>
+
+            <!-- 歌单 -->
+            <div class="section" id="playlists" style="display: none;">
+                <h2>歌单</h2>
+                <div class="create-playlist">
+                    <input type="text" id="playlistName" placeholder="歌单名称">
+                    <button class="btn" onclick="createPlaylist()">创建歌单</button>
+                </div>
+                <ul class="list" id="playlistsList">
+                    <!-- 歌单列表将通过JavaScript动态添加 -->
+                </ul>
+            </div>
+        </div>
+    </div>
+
+    <!-- 播放器 -->
+    <div class="player" id="player" style="display: none;">
+        <div class="player-content">
+            <div class="player-info">
+                <h3 id="currentSongTitle">未播放</h3>
+                <p id="currentSongArtist">-</p>
+            </div>
+            <div class="player-controls">
+                <button class="btn" onclick="playPause()">播放</button>
+                <button class="btn" onclick="stop()">停止</button>
+            </div>
+        </div>
+        <audio id="audioPlayer" controls>
+            您的浏览器不支持音频元素。
+        </audio>
+    </div>
+
+    <script>
+        let authParams = '';
+        let currentSong = null;
+
+        // 登录
+        function login() {
+            const username = document.getElementById('username').value;
+            const password = document.getElementById('password').value;
+            authParams = `u=${username}&p=${password}`;
+            document.getElementById('loginForm').style.display = 'none';
+            document.getElementById('content').style.display = 'block';
+            loadHome();
+        }
+
+        // 退出
+        function logout() {
+            authParams = '';
+            document.getElementById('content').style.display = 'none';
+            document.getElementById('loginForm').style.display = 'block';
+            document.getElementById('player').style.display = 'none';
+        }
+
+        // 显示指定部分
+        function showSection(sectionId) {
+            // 隐藏所有部分
+            document.getElementById('home').style.display = 'none';
+            document.getElementById('artists').style.display = 'none';
+            document.getElementById('albums').style.display = 'none';
+            document.getElementById('playlists').style.display = 'none';
+
+            // 显示选中部分
+            document.getElementById(sectionId).style.display = 'block';
+
+            // 加载对应内容
+            if (sectionId === 'artists') {
+                loadArtists();
+            } else if (sectionId === 'albums') {
+                loadAlbums();
+            } else if (sectionId === 'playlists') {
+                loadPlaylists();
+            }
+        }
+
+        // 加载首页
+        function loadHome() {
+            fetch(`/rest/getIndexes?${authParams}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data['subsonic-response'].status === 'ok') {
+                        loadSongs();
+                    }
+                })
+                .catch(error => console.error('Error:', error));
+        }
+
+        // 加载歌曲列表
+        function loadSongs() {
+            fetch(`/rest/search3?${authParams}&query=&songCount=20`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data['subsonic-response'].status === 'ok') {
+                        const songs = data['subsonic-response'].searchResult3.song;
+                        const songsList = document.getElementById('songsList');
+                        songsList.innerHTML = '';
+
+                        if (songs && songs.length > 0) {
+                            songs.forEach(song => {
+                                const li = document.createElement('li');
+                                li.innerHTML = `
+                                    <div>
+                                        <strong>${song.title}</strong>
+                                        <br>
+                                        <small>${song.artist} - ${song.album}</small>
+                                    </div>
+                                    <button class="play-btn" onclick="playSong(${song.id}, '${song.title}', '${song.artist}')">播放</button>
+                                `;
+                                songsList.appendChild(li);
+                            });
+                        } else {
+                            songsList.innerHTML = '<li>没有找到歌曲</li>';
+                        }
+                    }
+                })
+                .catch(error => console.error('Error:', error));
+        }
+
+        // 加载艺术家列表
+        function loadArtists() {
+            fetch(`/rest/getArtists?${authParams}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data['subsonic-response'].status === 'ok') {
+                        const artists = data['subsonic-response'].artists.artist;
+                        const artistsList = document.getElementById('artistsList');
+                        artistsList.innerHTML = '';
+
+                        if (artists && artists.length > 0) {
+                            artists.forEach(artist => {
+                                const li = document.createElement('li');
+                                li.innerHTML = `
+                                    <div>
+                                        <strong>${artist.name}</strong>
+                                    </div>
+                                    <button class="btn" onclick="loadArtistAlbums(${artist.id})">查看专辑</button>
+                                `;
+                                artistsList.appendChild(li);
+                            });
+                        } else {
+                            artistsList.innerHTML = '<li>没有找到艺术家</li>';
+                        }
+                    }
+                })
+                .catch(error => console.error('Error:', error));
+        }
+
+        // 加载艺术家专辑
+        function loadArtistAlbums(artistId) {
+            fetch(`/rest/getArtist?${authParams}&id=${artistId}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data['subsonic-response'].status === 'ok') {
+                        const artist = data['subsonic-response'].artist;
+                        const albums = artist.album;
+                        const albumsList = document.getElementById('albumsList');
+                        albumsList.innerHTML = '';
+
+                        if (albums && albums.length > 0) {
+                            albums.forEach(album => {
+                                const li = document.createElement('li');
+                                li.innerHTML = `
+                                    <div>
+                                        <strong>${album.name}</strong>
+                                        <br>
+                                        <small>${artist.name}</small>
+                                    </div>
+                                    <button class="btn" onclick="loadAlbumSongs(${album.id})">查看歌曲</button>
+                                `;
+                                albumsList.appendChild(li);
+                            });
+                        } else {
+                            albumsList.innerHTML = '<li>没有找到专辑</li>';
+                        }
+
+                        // 显示专辑页面
+                        showSection('albums');
+                    }
+                })
+                .catch(error => console.error('Error:', error));
+        }
+
+        // 加载专辑列表
+        function loadAlbums() {
+            fetch(`/rest/getAlbumList?${authParams}&type=newest&size=20`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data['subsonic-response'].status === 'ok') {
+                        const albums = data['subsonic-response'].albumList.album;
+                        const albumsList = document.getElementById('albumsList');
+                        albumsList.innerHTML = '';
+
+                        if (albums && albums.length > 0) {
+                            albums.forEach(album => {
+                                const li = document.createElement('li');
+                                li.innerHTML = `
+                                    <div>
+                                        <strong>${album.name}</strong>
+                                        <br>
+                                        <small>${album.artist}</small>
+                                    </div>
+                                    <button class="btn" onclick="loadAlbumSongs(${album.id})">查看歌曲</button>
+                                `;
+                                albumsList.appendChild(li);
+                            });
+                        } else {
+                            albumsList.innerHTML = '<li>没有找到专辑</li>';
+                        }
+                    }
+                })
+                .catch(error => console.error('Error:', error));
+        }
+
+        // 加载专辑歌曲
+        function loadAlbumSongs(albumId) {
+            fetch(`/rest/getAlbum?${authParams}&id=${albumId}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data['subsonic-response'].status === 'ok') {
+                        const album = data['subsonic-response'].album;
+                        const songs = album.song;
+                        const songsList = document.getElementById('songsList');
+                        songsList.innerHTML = '';
+
+                        if (songs && songs.length > 0) {
+                            songs.forEach(song => {
+                                const li = document.createElement('li');
+                                li.innerHTML = `
+                                    <div>
+                                        <strong>${song.title}</strong>
+                                        <br>
+                                        <small>${album.artist} - ${album.name}</small>
+                                    </div>
+                                    <button class="play-btn" onclick="playSong(${song.id}, '${song.title}', '${album.artist}')">播放</button>
+                                `;
+                                songsList.appendChild(li);
+                            });
+                        } else {
+                            songsList.innerHTML = '<li>没有找到歌曲</li>';
+                        }
+
+                        // 显示首页
+                        showSection('home');
+                    }
+                })
+                .catch(error => console.error('Error:', error));
+        }
+
+        // 加载歌单列表
+        function loadPlaylists() {
+            fetch(`/rest/getPlaylists?${authParams}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data['subsonic-response'].status === 'ok') {
+                        const playlists = data['subsonic-response'].playlists.playlist;
+                        const playlistsList = document.getElementById('playlistsList');
+                        playlistsList.innerHTML = '';
+
+                        if (playlists && playlists.length > 0) {
+                            playlists.forEach(playlist => {
+                                const li = document.createElement('li');
+                                li.innerHTML = `
+                                    <div>
+                                        <strong>${playlist.name}</strong>
+                                        <br>
+                                        <small>创建于: ${new Date(playlist.created).toLocaleString()}</small>
+                                    </div>
+                                    <button class="btn" onclick="loadPlaylistSongs(${playlist.id})">查看歌曲</button>
+                                `;
+                                playlistsList.appendChild(li);
+                            });
+                        } else {
+                            playlistsList.innerHTML = '<li>没有找到歌单</li>';
+                        }
+                    }
+                })
+                .catch(error => console.error('Error:', error));
+        }
+
+        // 加载歌单歌曲
+        function loadPlaylistSongs(playlistId) {
+            fetch(`/rest/getPlaylist?${authParams}&id=${playlistId}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data['subsonic-response'].status === 'ok') {
+                        const playlist = data['subsonic-response'].playlist;
+                        const songs = playlist.entry;
+                        const songsList = document.getElementById('songsList');
+                        songsList.innerHTML = '';
+
+                        if (songs && songs.length > 0) {
+                            songs.forEach(song => {
+                                const li = document.createElement('li');
+                                li.innerHTML = `
+                                    <div>
+                                        <strong>${song.title}</strong>
+                                        <br>
+                                        <small>${song.artist} - ${song.album}</small>
+                                    </div>
+                                    <button class="play-btn" onclick="playSong(${song.id}, '${song.title}', '${song.artist}')">播放</button>
+                                `;
+                                songsList.appendChild(li);
+                            });
+                        } else {
+                            songsList.innerHTML = '<li>没有找到歌曲</li>';
+                        }
+
+                        // 显示首页
+                        showSection('home');
+                    }
+                })
+                .catch(error => console.error('Error:', error));
+        }
+
+        // 创建歌单
+        function createPlaylist() {
+            const name = document.getElementById('playlistName').value;
+            if (name) {
+                fetch(`/rest/createPlaylist?${authParams}&name=${encodeURIComponent(name)}`)
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data['subsonic-response'].status === 'ok') {
+                            alert('歌单创建成功');
+                            document.getElementById('playlistName').value = '';
+                            loadPlaylists();
+                        }
+                    })
+                    .catch(error => console.error('Error:', error));
+            }
+        }
+
+        // 搜索音乐
+        function searchMusic() {
+            const query = document.getElementById('searchQuery').value;
+            if (query) {
+                fetch(`/rest/search3?${authParams}&query=${encodeURIComponent(query)}&songCount=20`)
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data['subsonic-response'].status === 'ok') {
+                            const songs = data['subsonic-response'].searchResult3.song;
+                            const songsList = document.getElementById('songsList');
+                            songsList.innerHTML = '';
+
+                            if (songs && songs.length > 0) {
+                                songs.forEach(song => {
+                                    const li = document.createElement('li');
+                                    li.innerHTML = `
+                                        <div>
+                                            <strong>${song.title}</strong>
+                                            <br>
+                                            <small>${song.artist} - ${song.album}</small>
+                                        </div>
+                                        <button class="play-btn" onclick="playSong(${song.id}, '${song.title}', '${song.artist}')">播放</button>
+                                    `;
+                                    songsList.appendChild(li);
+                                });
+                            } else {
+                                songsList.innerHTML = '<li>没有找到歌曲</li>';
+                            }
+                        }
+                    })
+                    .catch(error => console.error('Error:', error));
+            }
+        }
+
+        // 播放歌曲
+        function playSong(id, title, artist) {
+            currentSong = { id, title, artist };
+            document.getElementById('currentSongTitle').textContent = title;
+            document.getElementById('currentSongArtist').textContent = artist;
+            document.getElementById('player').style.display = 'block';
+
+            const audioPlayer = document.getElementById('audioPlayer');
+            audioPlayer.src = `/rest/stream?${authParams}&id=${id}`;
+            audioPlayer.play();
+        }
+
+        // 播放/暂停
+        function playPause() {
+            const audioPlayer = document.getElementById('audioPlayer');
+            if (audioPlayer.paused) {
+                audioPlayer.play();
+            } else {
+                audioPlayer.pause();
+            }
+        }
+
+        // 停止
+        function stop() {
+            const audioPlayer = document.getElementById('audioPlayer');
+            audioPlayer.pause();
+            audioPlayer.currentTime = 0;
+        }
+    </script>
+</body>
+</html>
