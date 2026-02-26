@@ -261,6 +261,35 @@
             color: #666;
         }
 
+        .card-cover-container {
+            width: 100%;
+            height: 200px;
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+            border-radius: 5px;
+            background-color: #f0f0f0;
+        }
+
+        .card-cover {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .card-cover-placeholder {
+            width: 100%;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background-color: #e0e0e0;
+            color: #999;
+            font-size: 14px;
+        }
+
         @media (max-width: 768px) {
             .nav ul {
                 flex-direction: column;
@@ -521,6 +550,8 @@
                                             <strong>${song.title}</strong>
                                             <br>
                                             <small>${song.artist} - ${song.album}</small>
+                                            <br>
+                                            <small>格式: ${song.format || '未知'} | 质量: ${song.quality || '未知'} | 时长: ${song.duration || 0}秒</small>
                                         </div>
                                         <button class="play-btn" onclick="playSong(${song.id}, '${song.title}', '${song.artist}')">播放</button>
                                     `;
@@ -537,7 +568,11 @@
                                 songs.forEach(song => {
                                     const card = document.createElement('div');
                                     card.className = 'song-card';
+                                    const coverArt = song.coverArt ? `<img src="/music/${song.coverArt.split('/').pop()}" alt="${song.album}" class="card-cover">` : '<div class="card-cover-placeholder">无封面</div>';
                                     card.innerHTML = `
+                                        <div class="card-cover-container">
+                                            ${coverArt}
+                                        </div>
                                         <h4>${song.title}</h4>
                                         <p>${song.artist} - ${song.album}</p>
                                         <button class="btn" onclick="playSong(${song.id}, '${song.title}', '${song.artist}')">播放</button>
@@ -788,6 +823,8 @@
                                                 <strong>${song.title}</strong>
                                                 <br>
                                                 <small>${song.artist} - ${song.album}</small>
+                                                <br>
+                                                <small>格式: ${song.format || '未知'} | 质量: ${song.quality || '未知'} | 时长: ${song.duration || 0}秒</small>
                                             </div>
                                             <button class="play-btn" onclick="playSong(${song.id}, '${song.title}', '${song.artist}')">播放</button>
                                         `;
@@ -804,7 +841,11 @@
                                     songs.forEach(song => {
                                         const card = document.createElement('div');
                                         card.className = 'song-card';
+                                        const coverArt = song.coverArt ? `<img src="/music/${song.coverArt.split('/').pop()}" alt="${song.album}" class="card-cover">` : '<div class="card-cover-placeholder">无封面</div>';
                                         card.innerHTML = `
+                                            <div class="card-cover-container">
+                                                ${coverArt}
+                                            </div>
                                             <h4>${song.title}</h4>
                                             <p>${song.artist} - ${song.album}</p>
                                             <button class="btn" onclick="playSong(${song.id}, '${song.title}', '${song.artist}')">播放</button>

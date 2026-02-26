@@ -151,7 +151,9 @@ const dbWrapper = {
         processedSql = processedSql.replace(/\?/g, (match) => {
           if (index < params.length) {
             const param = params[index++];
-            if (typeof param === 'string') {
+            if (param === null || param === undefined) {
+              return 'NULL';
+            } else if (typeof param === 'string') {
               return `'${param}'`;
             } else {
               return param;
@@ -160,10 +162,12 @@ const dbWrapper = {
           return match;
         });
       }
+      // console.log('Executing SQL:', processedSql);
       db.exec(processedSql);
       saveDB();
       if (callback) callback(null);
     } catch (error) {
+      console.error('Error executing SQL:', error);
       if (callback) callback(error);
     }
   },
@@ -218,7 +222,9 @@ const dbWrapper = {
         processedSql = processedSql.replace(/\?/g, (match) => {
           if (index < params.length) {
             const param = params[index++];
-            if (typeof param === 'string') {
+            if (param === null || param === undefined) {
+              return 'NULL';
+            } else if (typeof param === 'string') {
               return `'${param}'`;
             } else {
               return param;
@@ -227,9 +233,12 @@ const dbWrapper = {
           return match;
         });
       }
+      // console.log('Executing SQL:', processedSql);
       const result = db.exec(processedSql);
       if (result && result.length > 0) {
         const columns = result[0].columns;
+        // console.log('Columns:', columns);
+        // console.log('Values:', result[0].values);
         const rows = result[0].values.map(values => {
           const row = {};
           columns.forEach((col, index) => {
@@ -242,6 +251,7 @@ const dbWrapper = {
         if (callback) callback(null, []);
       }
     } catch (error) {
+      console.error('Error executing SQL:', error);
       if (callback) callback(error);
     }
   }

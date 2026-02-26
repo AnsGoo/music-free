@@ -28,7 +28,7 @@ app.use(express.urlencoded({ extended: true }));
 
 // 静态文件服务
 app.use(express.static(__dirname));
-app.use('/music', express.static(path.join(__dirname, 'music')));
+app.use(express.static(path.join(__dirname, 'music')));
 
 // 身份验证中间件
 function authenticate(req, res, next) {
@@ -275,71 +275,76 @@ app.get('/rest/search3', authenticate, (req, res) => {
   const { query, artistCount, albumCount, songCount } = req.query;
   
   // 搜索歌曲
-  db.all(`
-    SELECT s.id, s.title, s.artist_id, s.album_id, s.duration, 
-           a.name as artist, al.title as album 
-    FROM songs s
-    LEFT JOIN artists a ON s.artist_id = a.id
-    LEFT JOIN albums al ON s.album_id = al.id
-    WHERE s.title LIKE ? OR a.name LIKE ? OR al.title LIKE ?
-    LIMIT ?
-  `, [`%${query}%`, `%${query}%`, `%${query}%`, songCount || 20], (err, songs) => {
-    if (err) {
-      res.status(500).json(createResponse({ error: { code: 0, message: err.message } }, 'failed'));
-      return;
-    }
-    
-    // 搜索艺术家
     db.all(`
-      SELECT id, name 
-      FROM artists 
-      WHERE name LIKE ?
+      SELECT s.id, s.title, s.artist_id, s.album_id, s.duration, s.format, s.quality, 
+             a.name as artist, al.title as album, al.cover_art 
+      FROM songs s
+      LEFT JOIN artists a ON s.artist_id = a.id
+      LEFT JOIN albums al ON s.album_id = al.id
+      WHERE s.title LIKE ? OR a.name LIKE ? OR al.title LIKE ?
       LIMIT ?
-    `, [`%${query}%`, artistCount || 10], (err, artists) => {
+    `, [`%${query}%`, `%${query}%`, `%${query}%`, songCount || 20], (err, songs) => {
       if (err) {
         res.status(500).json(createResponse({ error: { code: 0, message: err.message } }, 'failed'));
         return;
       }
       
-      // 搜索专辑
+      console.log('Songs from database:', songs);
+      
+      // 搜索艺术家
       db.all(`
-        SELECT al.id, al.title, al.artist_id, a.name as artist 
-        FROM albums al
-        LEFT JOIN artists a ON al.artist_id = a.id
-        WHERE al.title LIKE ? OR a.name LIKE ?
+        SELECT id, name 
+        FROM artists 
+        WHERE name LIKE ?
         LIMIT ?
-      `, [`%${query}%`, `%${query}%`, albumCount || 10], (err, albums) => {
+      `, [`%${query}%`, artistCount || 10], (err, artists) => {
         if (err) {
           res.status(500).json(createResponse({ error: { code: 0, message: err.message } }, 'failed'));
           return;
         }
         
-        res.json(createResponse({ 
-          searchResult3: {
-            artist: artists.map(artist => ({
-              id: artist.id,
-              name: artist.name
-            })),
-            album: albums.map(album => ({
-              id: album.id,
-              name: album.title,
-              artist: album.artist,
-              artistId: album.artist_id
-            })),
-            song: songs.map(song => ({
-              id: song.id,
-              title: song.title,
-              artist: song.artist,
-              artistId: song.artist_id,
-              album: song.album,
-              albumId: song.album_id,
-              duration: song.duration
-            }))
+        // 搜索专辑
+        db.all(`
+          SELECT al.id, al.title, al.artist_id, a.name as artist 
+          FROM albums al
+          LEFT JOIN artists a ON al.artist_id = a.id
+          WHERE al.title LIKE ? OR a.name LIKE ?
+          LIMIT ?
+        `, [`%${query}%`, `%${query}%`, albumCount || 10], (err, albums) => {
+          if (err) {
+            res.status(500).json(createResponse({ error: { code: 0, message: err.message } }, 'failed'));
+            return;
           }
-        }));
+          
+          res.json(createResponse({ 
+            searchResult3: {
+              artist: artists.map(artist => ({
+                id: artist.id,
+                name: artist.name
+              })),
+              album: albums.map(album => ({
+                id: album.id,
+                name: album.title,
+                artist: album.artist,
+                artistId: album.artist_id
+              })),
+              song: songs.map(song => ({
+                id: song.id,
+                title: song.title,
+                artist: song.artist,
+                artistId: song.artist_id,
+                album: song.album,
+                albumId: song.album_id,
+                duration: song.duration,
+                format: song.format,
+                quality: song.quality,
+                coverArt: song.cover_art || null
+              }))
+            }
+          }));
+        });
       });
     });
-  });
 });
 
 // 获取歌曲详情
@@ -1108,6 +1113,18 @@ app.post('/upload', authenticate, upload.single('file'), async (req, res) => {
     const duration = req.body.duration || Math.round(metadata.format.duration || 0);
     const quality = req.body.quality || '未知音质';
     
+    // 提取专辑封面
+    let coverArt = null;
+    if (metadata.common.picture && metadata.common.picture.length > 0) {
+      const picture = metadata.common.picture[0];
+      // 提取文件扩展名，从 'image/jpeg' 中提取 'jpeg'
+      const format = picture.format.split('/')[1] || 'jpg';
+      const coverPath = path.join(__dirname, 'music', `${Date.now()}-cover.${format}`);
+      fs.writeFileSync(coverPath, picture.data);
+      coverArt = path.relative(__dirname, coverPath);
+      console.log('Extracted cover art:', coverArt);
+    }
+    
     // 查找或创建艺术家
     db.get(`SELECT id FROM artists WHERE name = ?`, [artist], (err, artistRow) => {
       if (err) {
@@ -1143,9 +1160,19 @@ app.post('/upload', authenticate, upload.single('file'), async (req, res) => {
           
           if (albumRow) {
             albumId = albumRow.id;
-            processSong();
+            // 如果有封面，更新专辑封面
+            if (coverArt) {
+              db.run(`UPDATE albums SET cover_art = ? WHERE id = ?`, [coverArt, albumId], (err) => {
+                if (err) {
+                  console.error('Error updating album cover:', err);
+                }
+                processSong();
+              });
+            } else {
+              processSong();
+            }
           } else {
-            db.run(`INSERT INTO albums (title, artist_id) VALUES (?, ?)`, [album, artistId], function(err) {
+            db.run(`INSERT INTO albums (title, artist_id, cover_art) VALUES (?, ?, ?)`, [album, artistId, coverArt], function(err) {
               if (err) {
                 res.status(500).json({ error: 'Failed to create album' });
                 return;
@@ -1157,12 +1184,14 @@ app.post('/upload', authenticate, upload.single('file'), async (req, res) => {
           
           function processSong() {
             // 创建歌曲记录
+            const relativePath = path.relative(__dirname, req.file.path);
             db.run(`
               INSERT INTO songs (title, artist_id, album_id, file_path, format, encoding, track, duration, quality)
               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            `, [title, artistId, albumId, req.file.path, format, encoding, track, duration, quality], (err) => {
+            `, [title, artistId, albumId, relativePath, format, encoding, track, duration, quality], (err) => {
               if (err) {
-                res.status(500).json({ error: 'Failed to create song' });
+                console.error('Error creating song:', err);
+                res.status(500).json({ error: 'Failed to create song: ' + err.message });
                 return;
               }
               
@@ -1189,6 +1218,7 @@ app.post('/upload', authenticate, upload.single('file'), async (req, res) => {
     console.error('Error extracting metadata:', error);
     // 如果提取元数据失败，使用用户提供的数据
     const { title, artist, album, format, encoding, track, duration, quality } = req.body;
+    let coverArt = null;
     
     if (!title || !artist || !album) {
       res.status(400).json({ error: 'Missing required fields' });
@@ -1230,9 +1260,19 @@ app.post('/upload', authenticate, upload.single('file'), async (req, res) => {
           
           if (albumRow) {
             albumId = albumRow.id;
-            processSong();
+            // 如果有封面，更新专辑封面
+            if (coverArt) {
+              db.run(`UPDATE albums SET cover_art = ? WHERE id = ?`, [coverArt, albumId], (err) => {
+                if (err) {
+                  console.error('Error updating album cover:', err);
+                }
+                processSong();
+              });
+            } else {
+              processSong();
+            }
           } else {
-            db.run(`INSERT INTO albums (title, artist_id) VALUES (?, ?)`, [album, artistId], function(err) {
+            db.run(`INSERT INTO albums (title, artist_id, cover_art) VALUES (?, ?, ?)`, [album, artistId, coverArt], function(err) {
               if (err) {
                 res.status(500).json({ error: 'Failed to create album' });
                 return;
@@ -1244,12 +1284,14 @@ app.post('/upload', authenticate, upload.single('file'), async (req, res) => {
           
           function processSong() {
             // 创建歌曲记录
+            const relativePath = path.relative(__dirname, req.file.path);
             db.run(`
               INSERT INTO songs (title, artist_id, album_id, file_path, format, encoding, track, duration, quality)
               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            `, [title, artistId, albumId, req.file.path, format, encoding, track, duration, quality], (err) => {
+            `, [title, artistId, albumId, relativePath, format, encoding, track, duration, quality], (err) => {
               if (err) {
-                res.status(500).json({ error: 'Failed to create song' });
+                console.error('Error creating song:', err);
+                res.status(500).json({ error: 'Failed to create song: ' + err.message });
                 return;
               }
               
