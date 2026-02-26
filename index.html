@@ -271,6 +271,7 @@
                     <li><a href="#" onclick="showSection('artists')">艺术家</a></li>
                     <li><a href="#" onclick="showSection('albums')">专辑</a></li>
                     <li><a href="#" onclick="showSection('playlists')">歌单</a></li>
+                    <li><a href="#" onclick="showSection('upload')">上传</a></li>
                     <li><a href="#" onclick="logout()">退出</a></li>
                 </ul>
             </nav>
@@ -315,6 +316,51 @@
                     <!-- 歌单列表将通过JavaScript动态添加 -->
                 </ul>
             </div>
+
+            <!-- 上传 -->
+            <div class="section" id="upload" style="display: none;">
+                <h2>上传音乐</h2>
+                <form id="uploadForm" enctype="multipart/form-data">
+                    <div class="form-group">
+                        <label for="file">选择文件</label>
+                        <input type="file" id="file" name="file" accept=".mp3,.wav,.flac,.ogg" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="uploadTitle">歌曲标题 (可选，自动提取)</label>
+                        <input type="text" id="uploadTitle" name="title" placeholder="歌曲标题">
+                    </div>
+                    <div class="form-group">
+                        <label for="uploadArtist">艺术家 (可选，自动提取)</label>
+                        <input type="text" id="uploadArtist" name="artist" placeholder="艺术家">
+                    </div>
+                    <div class="form-group">
+                        <label for="uploadAlbum">专辑 (可选，自动提取)</label>
+                        <input type="text" id="uploadAlbum" name="album" placeholder="专辑">
+                    </div>
+                    <div class="form-group">
+                        <label for="uploadFormat">格式 (可选，自动提取)</label>
+                        <input type="text" id="uploadFormat" name="format" placeholder="如: MP3">
+                    </div>
+                    <div class="form-group">
+                        <label for="uploadEncoding">编码 (可选)</label>
+                        <input type="text" id="uploadEncoding" name="encoding" placeholder="如: CBR 320kbps">
+                    </div>
+                    <div class="form-group">
+                        <label for="uploadTrack">轨道 (可选，自动提取)</label>
+                        <input type="number" id="uploadTrack" name="track" placeholder="如: 1">
+                    </div>
+                    <div class="form-group">
+                        <label for="uploadDuration">时长(秒) (可选，自动提取)</label>
+                        <input type="number" id="uploadDuration" name="duration" placeholder="如: 180">
+                    </div>
+                    <div class="form-group">
+                        <label for="uploadQuality">音质 (可选)</label>
+                        <input type="text" id="uploadQuality" name="quality" placeholder="如: 320kbps">
+                    </div>
+                    <button type="button" class="btn btn-block" onclick="uploadMusic()">上传</button>
+                </form>
+                <div id="uploadResult" style="margin-top: 20px;"></div>
+            </div>
         </div>
     </div>
 
@@ -339,11 +385,24 @@
         let authParams = '';
         let currentSong = null;
 
+        // 页面加载时检查登录状态
+        window.onload = function() {
+            const savedAuth = localStorage.getItem('authParams');
+            if (savedAuth) {
+                authParams = savedAuth;
+                document.getElementById('loginForm').style.display = 'none';
+                document.getElementById('content').style.display = 'block';
+                loadHome();
+            }
+        };
+
         // 登录
         function login() {
             const username = document.getElementById('username').value;
             const password = document.getElementById('password').value;
             authParams = `u=${username}&p=${password}`;
+            // 存储登录信息到localStorage
+            localStorage.setItem('authParams', authParams);
             document.getElementById('loginForm').style.display = 'none';
             document.getElementById('content').style.display = 'block';
             loadHome();
@@ -352,6 +411,8 @@
         // 退出
         function logout() {
             authParams = '';
+            // 清除localStorage中的登录信息
+            localStorage.removeItem('authParams');
             document.getElementById('content').style.display = 'none';
             document.getElementById('loginForm').style.display = 'block';
             document.getElementById('player').style.display = 'none';
@@ -364,6 +425,7 @@
             document.getElementById('artists').style.display = 'none';
             document.getElementById('albums').style.display = 'none';
             document.getElementById('playlists').style.display = 'none';
+            document.getElementById('upload').style.display = 'none';
 
             // 显示选中部分
             document.getElementById(sectionId).style.display = 'block';
@@ -676,25 +738,64 @@
             document.getElementById('player').style.display = 'block';
 
             const audioPlayer = document.getElementById('audioPlayer');
+            const playButton = document.querySelector('.player-controls .btn:first-child');
             audioPlayer.src = `/rest/stream?${authParams}&id=${id}`;
             audioPlayer.play();
+            playButton.textContent = '暂停';
         }
 
         // 播放/暂停
         function playPause() {
             const audioPlayer = document.getElementById('audioPlayer');
+            const playButton = document.querySelector('.player-controls .btn:first-child');
             if (audioPlayer.paused) {
                 audioPlayer.play();
+                playButton.textContent = '暂停';
             } else {
                 audioPlayer.pause();
+                playButton.textContent = '播放';
             }
         }
 
         // 停止
         function stop() {
             const audioPlayer = document.getElementById('audioPlayer');
+            const playButton = document.querySelector('.player-controls .btn:first-child');
             audioPlayer.pause();
             audioPlayer.currentTime = 0;
+            playButton.textContent = '播放';
+        }
+
+        // 上传音乐
+        function uploadMusic() {
+            const form = document.getElementById('uploadForm');
+            const formData = new FormData(form);
+            const resultDiv = document.getElementById('uploadResult');
+
+            resultDiv.innerHTML = '<p>上传中...</p>';
+
+            fetch(`/upload?${authParams}`, {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    resultDiv.innerHTML = '<p style="color: green;">上传成功！</p>';
+                    // 重置表单
+                    form.reset();
+                    // 刷新首页歌曲列表
+                    if (document.getElementById('home').style.display !== 'none') {
+                        loadSongs();
+                    }
+                } else {
+                    resultDiv.innerHTML = `<p style="color: red;">上传失败：${data.error}</p>`;
+                }
+            })
+            .catch(error => {
+                resultDiv.innerHTML = `<p style="color: red;">上传错误：${error.message}</p>`;
+                console.error('Error:', error);
+            });
         }
     </script>
 </body>

@@ -147,12 +147,17 @@ const dbWrapper = {
       // 处理参数化查询
       let processedSql = sql;
       if (params && params.length > 0) {
-        params.forEach((param, index) => {
-          if (typeof param === 'string') {
-            processedSql = processedSql.replace(`?`, `'${param}'`);
-          } else {
-            processedSql = processedSql.replace(`?`, param);
+        let index = 0;
+        processedSql = processedSql.replace(/\?/g, (match) => {
+          if (index < params.length) {
+            const param = params[index++];
+            if (typeof param === 'string') {
+              return `'${param}'`;
+            } else {
+              return param;
+            }
           }
+          return match;
         });
       }
       db.exec(processedSql);
@@ -171,12 +176,17 @@ const dbWrapper = {
       // 处理参数化查询
       let processedSql = sql;
       if (params && params.length > 0) {
-        params.forEach((param, index) => {
-          if (typeof param === 'string') {
-            processedSql = processedSql.replace(`?`, `'${param}'`);
-          } else {
-            processedSql = processedSql.replace(`?`, param);
+        let index = 0;
+        processedSql = processedSql.replace(/\?/g, (match) => {
+          if (index < params.length) {
+            const param = params[index++];
+            if (typeof param === 'string') {
+              return `'${param}'`;
+            } else {
+              return param;
+            }
           }
+          return match;
         });
       }
       const result = db.exec(processedSql);
@@ -204,12 +214,17 @@ const dbWrapper = {
       // 处理参数化查询
       let processedSql = sql;
       if (params && params.length > 0) {
-        params.forEach((param, index) => {
-          if (typeof param === 'string') {
-            processedSql = processedSql.replace(`?`, `'${param}'`);
-          } else {
-            processedSql = processedSql.replace(`?`, param);
+        let index = 0;
+        processedSql = processedSql.replace(/\?/g, (match) => {
+          if (index < params.length) {
+            const param = params[index++];
+            if (typeof param === 'string') {
+              return `'${param}'`;
+            } else {
+              return param;
+            }
           }
+          return match;
         });
       }
       const result = db.exec(processedSql);

@@ -3,6 +3,7 @@ const db = require('./db');
 const fs = require('fs');
 const path = require('path');
 const multer = require('multer');
+const mm = require('music-metadata');
 
 const app = express();
 const port = 4040;
@@ -1087,68 +1088,191 @@ app.get('/rest/startScan', authenticate, (req, res) => {
 });
 
 // 上传音乐文件
-app.post('/upload', authenticate, upload.single('file'), (req, res) => {
-  const { title, artist, album, format, encoding, track, duration, quality } = req.body;
-  
+app.post('/upload', authenticate, upload.single('file'), async (req, res) => {
   if (!req.file) {
     res.status(400).json({ error: 'No file uploaded' });
     return;
   }
   
-  // 查找或创建艺术家
-  db.get(`SELECT id FROM artists WHERE name = ?`, [artist], (err, artistRow) => {
-    let artistId;
+  try {
+    // 提取音频文件的元数据
+    const metadata = await mm.parseFile(req.file.path);
     
-    if (artistRow) {
-      artistId = artistRow.id;
-      processAlbum();
-    } else {
-      db.run(`INSERT INTO artists (name) VALUES (?)`, [artist], function(err) {
-        if (err) {
-          res.status(500).json({ error: 'Failed to create artist' });
-          return;
-        }
-        artistId = this.lastID;
+    // 使用提取的元数据或用户提供的数据
+    const title = req.body.title || metadata.common.title || path.basename(req.file.filename, path.extname(req.file.filename));
+    const artist = req.body.artist || metadata.common.artists?.[0] || '未知艺术家';
+    const album = req.body.album || metadata.common.album || '未知专辑';
+    const format = req.body.format || path.extname(req.file.filename).substring(1).toUpperCase();
+    const encoding = req.body.encoding || '未知编码';
+    const track = req.body.track || metadata.common.track?.no || 1;
+    const duration = req.body.duration || Math.round(metadata.format.duration || 0);
+    const quality = req.body.quality || '未知音质';
+    
+    // 查找或创建艺术家
+    db.get(`SELECT id FROM artists WHERE name = ?`, [artist], (err, artistRow) => {
+      if (err) {
+        res.status(500).json({ error: 'Failed to query artist' });
+        return;
+      }
+      
+      let artistId;
+      
+      if (artistRow) {
+        artistId = artistRow.id;
         processAlbum();
-      });
+      } else {
+        db.run(`INSERT INTO artists (name) VALUES (?)`, [artist], function(err) {
+          if (err) {
+            res.status(500).json({ error: 'Failed to create artist' });
+            return;
+          }
+          artistId = this.lastID;
+          processAlbum();
+        });
+      }
+      
+      function processAlbum() {
+        // 查找或创建专辑
+        db.get(`SELECT id FROM albums WHERE title = ? AND artist_id = ?`, [album, artistId], (err, albumRow) => {
+          if (err) {
+            res.status(500).json({ error: 'Failed to query album' });
+            return;
+          }
+          
+          let albumId;
+          
+          if (albumRow) {
+            albumId = albumRow.id;
+            processSong();
+          } else {
+            db.run(`INSERT INTO albums (title, artist_id) VALUES (?, ?)`, [album, artistId], function(err) {
+              if (err) {
+                res.status(500).json({ error: 'Failed to create album' });
+                return;
+              }
+              albumId = this.lastID;
+              processSong();
+            });
+          }
+          
+          function processSong() {
+            // 创建歌曲记录
+            db.run(`
+              INSERT INTO songs (title, artist_id, album_id, file_path, format, encoding, track, duration, quality)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            `, [title, artistId, albumId, req.file.path, format, encoding, track, duration, quality], (err) => {
+              if (err) {
+                res.status(500).json({ error: 'Failed to create song' });
+                return;
+              }
+              
+              res.json({ 
+                success: true, 
+                message: 'File uploaded successfully',
+                metadata: {
+                  title,
+                  artist,
+                  album,
+                  format,
+                  encoding,
+                  track,
+                  duration,
+                  quality
+                }
+              });
+            });
+          }
+        });
+      }
+    });
+  } catch (error) {
+    console.error('Error extracting metadata:', error);
+    // 如果提取元数据失败，使用用户提供的数据
+    const { title, artist, album, format, encoding, track, duration, quality } = req.body;
+    
+    if (!title || !artist || !album) {
+      res.status(400).json({ error: 'Missing required fields' });
+      return;
     }
     
-    function processAlbum() {
-      // 查找或创建专辑
-      db.get(`SELECT id FROM albums WHERE title = ? AND artist_id = ?`, [album, artistId], (err, albumRow) => {
-        let albumId;
-        
-        if (albumRow) {
-          albumId = albumRow.id;
-          processSong();
-        } else {
-          db.run(`INSERT INTO albums (title, artist_id) VALUES (?, ?)`, [album, artistId], function(err) {
-            if (err) {
-              res.status(500).json({ error: 'Failed to create album' });
-              return;
-            }
-            albumId = this.lastID;
+    // 查找或创建艺术家
+    db.get(`SELECT id FROM artists WHERE name = ?`, [artist], (err, artistRow) => {
+      if (err) {
+        res.status(500).json({ error: 'Failed to query artist' });
+        return;
+      }
+      
+      let artistId;
+      
+      if (artistRow) {
+        artistId = artistRow.id;
+        processAlbum();
+      } else {
+        db.run(`INSERT INTO artists (name) VALUES (?)`, [artist], function(err) {
+          if (err) {
+            res.status(500).json({ error: 'Failed to create artist' });
+            return;
+          }
+          artistId = this.lastID;
+          processAlbum();
+        });
+      }
+      
+      function processAlbum() {
+        // 查找或创建专辑
+        db.get(`SELECT id FROM albums WHERE title = ? AND artist_id = ?`, [album, artistId], (err, albumRow) => {
+          if (err) {
+            res.status(500).json({ error: 'Failed to query album' });
+            return;
+          }
+          
+          let albumId;
+          
+          if (albumRow) {
+            albumId = albumRow.id;
             processSong();
-          });
-        }
-        
-        function processSong() {
-          // 创建歌曲记录
-          db.run(`
-            INSERT INTO songs (title, artist_id, album_id, file_path, format, encoding, track, duration, quality)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-          `, [title, artistId, albumId, req.file.path, format, encoding, track, duration, quality], (err) => {
-            if (err) {
-              res.status(500).json({ error: 'Failed to create song' });
-              return;
-            }
-            
-            res.json({ success: true, message: 'File uploaded successfully' });
-          });
-        }
-      });
-    }
-  });
+          } else {
+            db.run(`INSERT INTO albums (title, artist_id) VALUES (?, ?)`, [album, artistId], function(err) {
+              if (err) {
+                res.status(500).json({ error: 'Failed to create album' });
+                return;
+              }
+              albumId = this.lastID;
+              processSong();
+            });
+          }
+          
+          function processSong() {
+            // 创建歌曲记录
+            db.run(`
+              INSERT INTO songs (title, artist_id, album_id, file_path, format, encoding, track, duration, quality)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            `, [title, artistId, albumId, req.file.path, format, encoding, track, duration, quality], (err) => {
+              if (err) {
+                res.status(500).json({ error: 'Failed to create song' });
+                return;
+              }
+              
+              res.json({ 
+                success: true, 
+                message: 'File uploaded successfully (metadata extraction failed, used provided data)',
+                metadata: {
+                  title,
+                  artist,
+                  album,
+                  format,
+                  encoding,
+                  track,
+                  duration,
+                  quality
+                }
+              });
+            });
+          }
+        });
+      }
+    });
+  }
 });
 
 // 启动服务器
