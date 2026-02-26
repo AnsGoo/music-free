@@ -226,6 +226,41 @@
             margin-right: 10px;
         }
 
+        .view-controls {
+            margin: 15px 0;
+            display: flex;
+            gap: 10px;
+        }
+
+        .card-container {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+            gap: 20px;
+        }
+
+        .song-card {
+            background-color: #f9f9f9;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            padding: 15px;
+            text-align: center;
+            transition: transform 0.2s;
+        }
+
+        .song-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+
+        .song-card h4 {
+            margin-bottom: 10px;
+        }
+
+        .song-card p {
+            margin-bottom: 15px;
+            color: #666;
+        }
+
         @media (max-width: 768px) {
             .nav ul {
                 flex-direction: column;
@@ -238,6 +273,10 @@
 
             .player-controls {
                 margin-top: 10px;
+            }
+
+            .card-container {
+                grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
             }
         }
     </style>
@@ -283,10 +322,19 @@
                     <input type="text" id="searchQuery" placeholder="搜索音乐...">
                     <button onclick="searchMusic()">搜索</button>
                 </div>
+                <div class="view-controls">
+                    <button class="btn" onclick="switchView('list')">列表视图</button>
+                    <button class="btn" onclick="switchView('card')">卡视图</button>
+                </div>
                 <h3>热门歌曲</h3>
-                <ul class="list" id="songsList">
-                    <!-- 歌曲列表将通过JavaScript动态添加 -->
-                </ul>
+                <div id="songsContainer">
+                    <ul class="list" id="songsList">
+                        <!-- 歌曲列表将通过JavaScript动态添加 -->
+                    </ul>
+                    <div class="card-container" id="songsCard" style="display: none;">
+                        <!-- 歌曲卡片将通过JavaScript动态添加 -->
+                    </div>
+                </div>
             </div>
 
             <!-- 艺术家 -->
@@ -384,6 +432,7 @@
     <script>
         let authParams = '';
         let currentSong = null;
+        let currentView = 'list';
 
         // 页面加载时检查登录状态
         window.onload = function() {
@@ -459,24 +508,45 @@
                 .then(data => {
                     if (data['subsonic-response'].status === 'ok') {
                         const songs = data['subsonic-response'].searchResult3.song;
-                        const songsList = document.getElementById('songsList');
-                        songsList.innerHTML = '';
+                        
+                        if (currentView === 'list') {
+                            const songsList = document.getElementById('songsList');
+                            songsList.innerHTML = '';
 
-                        if (songs && songs.length > 0) {
-                            songs.forEach(song => {
-                                const li = document.createElement('li');
-                                li.innerHTML = `
-                                    <div>
-                                        <strong>${song.title}</strong>
-                                        <br>
-                                        <small>${song.artist} - ${song.album}</small>
-                                    </div>
-                                    <button class="play-btn" onclick="playSong(${song.id}, '${song.title}', '${song.artist}')">播放</button>
-                                `;
-                                songsList.appendChild(li);
-                            });
-                        } else {
-                            songsList.innerHTML = '<li>没有找到歌曲</li>';
+                            if (songs && songs.length > 0) {
+                                songs.forEach(song => {
+                                    const li = document.createElement('li');
+                                    li.innerHTML = `
+                                        <div>
+                                            <strong>${song.title}</strong>
+                                            <br>
+                                            <small>${song.artist} - ${song.album}</small>
+                                        </div>
+                                        <button class="play-btn" onclick="playSong(${song.id}, '${song.title}', '${song.artist}')">播放</button>
+                                    `;
+                                    songsList.appendChild(li);
+                                });
+                            } else {
+                                songsList.innerHTML = '<li>没有找到歌曲</li>';
+                            }
+                        } else if (currentView === 'card') {
+                            const songsCard = document.getElementById('songsCard');
+                            songsCard.innerHTML = '';
+
+                            if (songs && songs.length > 0) {
+                                songs.forEach(song => {
+                                    const card = document.createElement('div');
+                                    card.className = 'song-card';
+                                    card.innerHTML = `
+                                        <h4>${song.title}</h4>
+                                        <p>${song.artist} - ${song.album}</p>
+                                        <button class="btn" onclick="playSong(${song.id}, '${song.title}', '${song.artist}')">播放</button>
+                                    `;
+                                    songsCard.appendChild(card);
+                                });
+                            } else {
+                                songsCard.innerHTML = '<p>没有找到歌曲</p>';
+                            }
                         }
                     }
                 })
@@ -705,24 +775,45 @@
                     .then(data => {
                         if (data['subsonic-response'].status === 'ok') {
                             const songs = data['subsonic-response'].searchResult3.song;
-                            const songsList = document.getElementById('songsList');
-                            songsList.innerHTML = '';
+                            
+                            if (currentView === 'list') {
+                                const songsList = document.getElementById('songsList');
+                                songsList.innerHTML = '';
 
-                            if (songs && songs.length > 0) {
-                                songs.forEach(song => {
-                                    const li = document.createElement('li');
-                                    li.innerHTML = `
-                                        <div>
-                                            <strong>${song.title}</strong>
-                                            <br>
-                                            <small>${song.artist} - ${song.album}</small>
-                                        </div>
-                                        <button class="play-btn" onclick="playSong(${song.id}, '${song.title}', '${song.artist}')">播放</button>
-                                    `;
-                                    songsList.appendChild(li);
-                                });
-                            } else {
-                                songsList.innerHTML = '<li>没有找到歌曲</li>';
+                                if (songs && songs.length > 0) {
+                                    songs.forEach(song => {
+                                        const li = document.createElement('li');
+                                        li.innerHTML = `
+                                            <div>
+                                                <strong>${song.title}</strong>
+                                                <br>
+                                                <small>${song.artist} - ${song.album}</small>
+                                            </div>
+                                            <button class="play-btn" onclick="playSong(${song.id}, '${song.title}', '${song.artist}')">播放</button>
+                                        `;
+                                        songsList.appendChild(li);
+                                    });
+                                } else {
+                                    songsList.innerHTML = '<li>没有找到歌曲</li>';
+                                }
+                            } else if (currentView === 'card') {
+                                const songsCard = document.getElementById('songsCard');
+                                songsCard.innerHTML = '';
+
+                                if (songs && songs.length > 0) {
+                                    songs.forEach(song => {
+                                        const card = document.createElement('div');
+                                        card.className = 'song-card';
+                                        card.innerHTML = `
+                                            <h4>${song.title}</h4>
+                                            <p>${song.artist} - ${song.album}</p>
+                                            <button class="btn" onclick="playSong(${song.id}, '${song.title}', '${song.artist}')">播放</button>
+                                        `;
+                                        songsCard.appendChild(card);
+                                    });
+                                } else {
+                                    songsCard.innerHTML = '<p>没有找到歌曲</p>';
+                                }
                             }
                         }
                     })
@@ -764,6 +855,23 @@
             audioPlayer.pause();
             audioPlayer.currentTime = 0;
             playButton.textContent = '播放';
+        }
+
+        // 切换视图
+        function switchView(view) {
+            currentView = view;
+            const songsList = document.getElementById('songsList');
+            const songsCard = document.getElementById('songsCard');
+            
+            if (view === 'list') {
+                songsList.style.display = 'block';
+                songsCard.style.display = 'none';
+            } else if (view === 'card') {
+                songsList.style.display = 'none';
+                songsCard.style.display = 'grid';
+                // 重新加载歌曲以显示卡片视图
+                loadSongs();
+            }
         }
 
         // 上传音乐
