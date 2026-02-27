@@ -6,6 +6,7 @@ const multer = require('multer');
 const mm = require('music-metadata');
 const sync = require('./sync');
 const webdav = require('./webdav');
+const { detectDuplicateSongs, deleteDuplicateSong } = require('./deduplicate');
 
 const app = express();
 const port = 4040;
@@ -1413,6 +1414,33 @@ app.get('/rest/streamWebdav', authenticate, async (req, res) => {
     
     // 流式传输
     stream.pipe(res);
+  } catch (error) {
+    res.status(500).json(createResponse({ error: { code: 0, message: error.message } }, 'failed'));
+  }
+});
+
+// 检测重复音乐
+app.get('/rest/detectDuplicates', authenticate, async (req, res) => {
+  try {
+    const duplicates = await detectDuplicateSongs();
+    res.json(createResponse({ duplicates }));
+  } catch (error) {
+    res.status(500).json(createResponse({ error: { code: 0, message: error.message } }, 'failed'));
+  }
+});
+
+// 删除重复音乐
+app.post('/rest/deleteDuplicate', authenticate, async (req, res) => {
+  try {
+    const { songId } = req.body;
+    
+    if (!songId) {
+      res.status(400).json(createResponse({ error: { code: 40, message: 'Song ID is required' } }, 'failed'));
+      return;
+    }
+    
+    await deleteDuplicateSong(songId);
+    res.json(createResponse({ success: true }));
   } catch (error) {
     res.status(500).json(createResponse({ error: { code: 0, message: error.message } }, 'failed'));
   }

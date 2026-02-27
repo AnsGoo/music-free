@@ -342,6 +342,7 @@
                     <li><a href="#" onclick="showSection('upload')">上传</a></li>
                     <li><a href="#" onclick="showSection('sync')">同步</a></li>
                     <li><a href="#" onclick="showSection('webdav')">WebDAV</a></li>
+                    <li><a href="#" onclick="showSection('deduplicate')">去重</a></li>
                     <li><a href="#" onclick="logout()">退出</a></li>
                 </ul>
             </nav>
@@ -504,6 +505,16 @@
                 </div>
                 <div id="webdavResult" style="margin-top: 20px;"></div>
             </div>
+            
+            <!-- 去重 -->
+            <div class="section" id="deduplicate" style="display: none;">
+                <h2>音乐去重</h2>
+                <div class="form-group">
+                    <button type="button" class="btn btn-block" onclick="detectDuplicates()">检测重复音乐</button>
+                </div>
+                <div id="duplicatesResult" style="margin-top: 20px;"></div>
+                <div id="duplicatesList" style="margin-top: 20px;"></div>
+            </div>
         </div>
     </div>
 
@@ -574,6 +585,7 @@
             document.getElementById('upload').style.display = 'none';
             document.getElementById('sync').style.display = 'none';
             document.getElementById('webdav').style.display = 'none';
+            document.getElementById('deduplicate').style.display = 'none';
 
             // 显示选中部分
             document.getElementById(sectionId).style.display = 'block';
@@ -1259,6 +1271,95 @@
             audioPlayer.src = `/rest/streamWebdav?${authParams}&configId=${currentWebdavConfig}&path=${encodeURIComponent(path)}`;
             audioPlayer.play();
             playButton.textContent = '暂停';
+        }
+        
+        // 检测重复音乐
+        function detectDuplicates() {
+            const resultDiv = document.getElementById('duplicatesResult');
+            const listDiv = document.getElementById('duplicatesList');
+            
+            resultDiv.innerHTML = '<p>检测中...</p>';
+            listDiv.innerHTML = '';
+            
+            fetch(`/rest/detectDuplicates?${authParams}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data['subsonic-response'].status === 'ok') {
+                        const duplicates = data['subsonic-response'].duplicates;
+                        
+                        if (duplicates && duplicates.length > 0) {
+                            resultDiv.innerHTML = `<p style="color: green;">找到 ${duplicates.length} 组重复音乐</p>`;
+                            
+                            duplicates.forEach((group, index) => {
+                                const groupDiv = document.createElement('div');
+                                groupDiv.className = 'form-group';
+                                groupDiv.style.marginBottom = '20px';
+                                groupDiv.style.padding = '15px';
+                                groupDiv.style.backgroundColor = '#f9f9f9';
+                                groupDiv.style.borderRadius = '5px';
+                                
+                                groupDiv.innerHTML = `
+                                    <h4>重复组 ${index + 1}: ${group[0].title} - ${group[0].artist}</h4>
+                                    <ul class="list">
+                                        ${group.map(song => `
+                                            <li>
+                                                <div>
+                                                    <strong>${song.title}</strong>
+                                                    <br>
+                                                    <small>艺术家: ${song.artist || '未知'}</small>
+                                                    <br>
+                                                    <small>专辑: ${song.album || '未知'}</small>
+                                                    <br>
+                                                    <small>时长: ${song.duration || 0}秒</small>
+                                                    <br>
+                                                    <small>文件路径: ${song.file_path}</small>
+                                                </div>
+                                                <button class="btn" onclick="deleteDuplicate(${song.id})">删除</button>
+                                            </li>
+                                        `).join('')}
+                                    </ul>
+                                `;
+                                
+                                listDiv.appendChild(groupDiv);
+                            });
+                        } else {
+                            resultDiv.innerHTML = '<p style="color: green;">未找到重复音乐</p>';
+                            listDiv.innerHTML = '<p>所有音乐都是唯一的</p>';
+                        }
+                    } else {
+                        resultDiv.innerHTML = `<p style="color: red;">检测失败：${data['subsonic-response'].error.message}</p>`;
+                    }
+                })
+                .catch(error => {
+                    resultDiv.innerHTML = `<p style="color: red;">检测错误：${error.message}</p>`;
+                    console.error('Error:', error);
+                });
+        }
+        
+        // 删除重复音乐
+        function deleteDuplicate(songId) {
+            if (confirm('确定要删除这首歌曲吗？')) {
+                fetch(`/rest/deleteDuplicate?${authParams}`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ songId })
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data['subsonic-response'].status === 'ok') {
+                        // 重新检测重复音乐
+                        detectDuplicates();
+                    } else {
+                        alert(`删除失败：${data['subsonic-response'].error.message}`);
+                    }
+                })
+                .catch(error => {
+                    alert(`删除错误：${error.message}`);
+                    console.error('Error:', error);
+                });
+            }
         }
     </script>
 </body>
