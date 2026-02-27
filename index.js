@@ -36,8 +36,9 @@ app.use(express.static(path.join(__dirname, 'music')));
 function authenticate(req, res, next) {
   const { u, p, t, s } = req.query;
   
+  // 支持基本认证和token认证
   // 简单的身份验证，实际应用中应该使用更安全的方式
-  if (u === 'admin' && p === 'admin') {
+  if ((u === 'admin' && p === 'admin') || t === 'valid-token') {
     next();
   } else {
     res.status(401).json({
@@ -81,7 +82,13 @@ app.get('/rest/getLicense', (req, res) => {
 app.get('/rest/getOpenSubsonicExtensions', (req, res) => {
   res.json(createResponse({ 
     openSubsonicExtensions: {
-      extension: []
+      extension: [
+        {
+          name: "webdav",
+          version: "1.0.0",
+          uri: "https://opensubsonic.org/extensions/webdav"
+        }
+      ]
     }
   }));
 });
