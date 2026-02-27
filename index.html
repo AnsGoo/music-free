@@ -656,6 +656,28 @@
                                 songsCard.innerHTML = '<p>没有找到歌曲</p>';
                             }
                         }
+                        
+                        // 控制分页按钮状态
+                        const nextButton = document.querySelector('#pagination button:last-child');
+                        const prevButton = document.querySelector('#pagination button:first-child');
+                        
+                        // 禁用或启用上一页按钮
+                        if (currentPage === 1) {
+                            prevButton.disabled = true;
+                            prevButton.style.opacity = '0.5';
+                        } else {
+                            prevButton.disabled = false;
+                            prevButton.style.opacity = '1';
+                        }
+                        
+                        // 禁用或启用下一页按钮
+                        if (!songs || songs.length < pageSize) {
+                            nextButton.disabled = true;
+                            nextButton.style.opacity = '0.5';
+                        } else {
+                            nextButton.disabled = false;
+                            nextButton.style.opacity = '1';
+                        }
                     }
                 })
                 .catch(error => console.error('Error:', error));
