@@ -365,6 +365,11 @@
                     <div class="card-container" id="songsCard" style="display: none;">
                         <!-- 歌曲卡片将通过JavaScript动态添加 -->
                     </div>
+                    <div id="pagination" style="margin-top: 20px; text-align: center;">
+                        <button class="btn" onclick="changePage(-1)">上一页</button>
+                        <span id="pageInfo">第 1 页</span>
+                        <button class="btn" onclick="changePage(1)">下一页</button>
+                    </div>
                 </div>
             </div>
 
@@ -523,6 +528,8 @@
         let authParams = '';
         let currentSong = null;
         let currentView = 'list';
+        let currentPage = 1;
+        let pageSize = 20;
 
         // 页面加载时检查登录状态
         window.onload = function() {
@@ -597,7 +604,8 @@
 
         // 加载歌曲列表
         function loadSongs() {
-            fetch(`/rest/search3?${authParams}&query=&songCount=20`)
+            const offset = (currentPage - 1) * pageSize;
+            fetch(`/rest/search3?${authParams}&query=&songCount=${pageSize}&offset=${offset}`)
                 .then(response => response.json())
                 .then(data => {
                     if (data['subsonic-response'].status === 'ok') {
@@ -976,6 +984,16 @@
                 songsList.style.display = 'none';
                 songsCard.style.display = 'grid';
                 // 重新加载歌曲以显示卡片视图
+                loadSongs();
+            }
+        }
+
+        // 改变页码
+        function changePage(direction) {
+            const newPage = currentPage + direction;
+            if (newPage > 0) {
+                currentPage = newPage;
+                document.getElementById('pageInfo').textContent = `第 ${currentPage} 页`;
                 loadSongs();
             }
         }

@@ -32,3 +32,6 @@ coverage/
 # Build files
 dist/
 build/
+
+# WebDAV config
+webdav-config.json

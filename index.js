@@ -274,7 +274,7 @@ app.get('/rest/getIndexes', authenticate, (req, res) => {
 
 // 搜索音乐
 app.get('/rest/search3', authenticate, (req, res) => {
-  const { query, artistCount, albumCount, songCount } = req.query;
+  const { query, artistCount, albumCount, songCount, offset } = req.query;
   
   // 搜索歌曲
     db.all(`
@@ -284,8 +284,8 @@ app.get('/rest/search3', authenticate, (req, res) => {
       LEFT JOIN artists a ON s.artist_id = a.id
       LEFT JOIN albums al ON s.album_id = al.id
       WHERE s.title LIKE ? OR a.name LIKE ? OR al.title LIKE ?
-      LIMIT ?
-    `, [`%${query}%`, `%${query}%`, `%${query}%`, songCount || 20], (err, songs) => {
+      LIMIT ? OFFSET ?
+    `, [`%${query}%`, `%${query}%`, `%${query}%`, songCount || 20, offset || 0], (err, songs) => {
       if (err) {
         res.status(500).json(createResponse({ error: { code: 0, message: err.message } }, 'failed'));
         return;
