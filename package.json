@@ -15,7 +15,8 @@
     "music-metadata": "^11.12.1",
     "node-schedule": "^2.1.1",
     "path": "^0.12.7",
-    "sql.js": "^1.14.0"
+    "sql.js": "^1.14.0",
+    "webdav": "^5.9.0"
   },
   "devDependencies": {
     "nodemon": "^3.0.1"

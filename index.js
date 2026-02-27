@@ -5,6 +5,7 @@ const path = require('path');
 const multer = require('multer');
 const mm = require('music-metadata');
 const sync = require('./sync');
+const webdav = require('./webdav');
 
 const app = express();
 const port = 4040;
@@ -1329,11 +1330,58 @@ app.get('/rest/syncMusic', authenticate, (req, res) => {
     });
 });
 
+// WebDAV相关接口
+
+// 获取WebDAV配置列表
+app.get('/rest/getWebdavConfig', authenticate, (req, res) => {
+  try {
+    const config = webdav.getWebdavConfig();
+    res.json(createResponse({ webdavConfig: config }));
+  } catch (error) {
+    res.status(500).json(createResponse({ error: { code: 0, message: error.message } }, 'failed'));
+  }
+});
+
+// 添加WebDAV配置
+app.post('/rest/addWebdavConfig', authenticate, express.json(), (req, res) => {
+  try {
+    const config = req.body;
+    const newConfig = webdav.addWebdavConfig(config);
+    res.json(createResponse({ webdavConfig: newConfig }));
+  } catch (error) {
+    res.status(500).json(createResponse({ error: { code: 0, message: error.message } }, 'failed'));
+  }
+});
+
+// 删除WebDAV配置
+app.get('/rest/removeWebdavConfig', authenticate, (req, res) => {
+  try {
+    const { id } = req.query;
+    webdav.removeWebdavConfig(id);
+    res.json(createResponse({}));
+  } catch (error) {
+    res.status(500).json(createResponse({ error: { code: 0, message: error.message } }, 'failed'));
+  }
+});
+
+// 手动同步WebDAV
+app.get('/rest/syncWebdav', authenticate, (req, res) => {
+  webdav.syncAllWebdavDirectories()
+    .then(() => {
+      res.json(createResponse({}));
+    })
+    .catch(error => {
+      res.status(500).json(createResponse({ error: { code: 0, message: error.message } }, 'failed'));
+    });
+});
+
 // 启动服务器
 app.listen(port, () => {
   console.log(`音乐服务器运行在 http://localhost:${port}`);
   // 等待数据库初始化完成后再启动同步
   setTimeout(() => {
     sync.init();
+    // 初始化WebDAV
+    webdav.init();
   }, 1000);
 });
