@@ -4,6 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const multer = require('multer');
 const mm = require('music-metadata');
+const sync = require('./sync');
 
 const app = express();
 const port = 4040;
@@ -1317,7 +1318,22 @@ app.post('/upload', authenticate, upload.single('file'), async (req, res) => {
   }
 });
 
+// 手动触发音乐同步
+app.get('/rest/syncMusic', authenticate, (req, res) => {
+  sync.syncMusicFiles()
+    .then(() => {
+      res.json(createResponse({}));
+    })
+    .catch(error => {
+      res.status(500).json(createResponse({ error: { code: 0, message: error.message } }, 'failed'));
+    });
+});
+
 // 启动服务器
 app.listen(port, () => {
   console.log(`音乐服务器运行在 http://localhost:${port}`);
+  // 等待数据库初始化完成后再启动同步
+  setTimeout(() => {
+    sync.init();
+  }, 1000);
 });

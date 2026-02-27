@@ -340,6 +340,7 @@
                     <li><a href="#" onclick="showSection('albums')">专辑</a></li>
                     <li><a href="#" onclick="showSection('playlists')">歌单</a></li>
                     <li><a href="#" onclick="showSection('upload')">上传</a></li>
+                    <li><a href="#" onclick="showSection('sync')">同步</a></li>
                     <li><a href="#" onclick="logout()">退出</a></li>
                 </ul>
             </nav>
@@ -438,6 +439,27 @@
                 </form>
                 <div id="uploadResult" style="margin-top: 20px;"></div>
             </div>
+            
+            <!-- 同步 -->
+            <div class="section" id="sync" style="display: none;">
+                <h2>音乐同步</h2>
+                <div class="form-group">
+                    <label>同步状态</label>
+                    <div id="syncStatus" style="padding: 10px; background-color: #f0f0f0; border-radius: 3px;">
+                        同步服务已启动，每5分钟自动同步一次
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>同步目录</label>
+                    <div style="padding: 10px; background-color: #f0f0f0; border-radius: 3px;">
+                        music/
+                    </div>
+                </div>
+                <div class="form-group">
+                    <button type="button" class="btn btn-block" onclick="syncMusic()">立即同步</button>
+                </div>
+                <div id="syncResult" style="margin-top: 20px;"></div>
+            </div>
         </div>
     </div>
 
@@ -504,6 +526,7 @@
             document.getElementById('albums').style.display = 'none';
             document.getElementById('playlists').style.display = 'none';
             document.getElementById('upload').style.display = 'none';
+            document.getElementById('sync').style.display = 'none';
 
             // 显示选中部分
             document.getElementById(sectionId).style.display = 'block';
@@ -943,6 +966,33 @@
             })
             .catch(error => {
                 resultDiv.innerHTML = `<p style="color: red;">上传错误：${error.message}</p>`;
+                console.error('Error:', error);
+            });
+        }
+        
+        // 手动同步音乐
+        function syncMusic() {
+            const resultDiv = document.getElementById('syncResult');
+
+            resultDiv.innerHTML = '<p>同步中...</p>';
+
+            fetch(`/rest/syncMusic?${authParams}`, {
+                method: 'GET'
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data['subsonic-response'].status === 'ok') {
+                    resultDiv.innerHTML = '<p style="color: green;">同步成功！</p>';
+                    // 刷新首页歌曲列表
+                    if (document.getElementById('home').style.display !== 'none') {
+                        loadSongs();
+                    }
+                } else {
+                    resultDiv.innerHTML = `<p style="color: red;">同步失败：${data['subsonic-response'].error.message}</p>`;
+                }
+            })
+            .catch(error => {
+                resultDiv.innerHTML = `<p style="color: red;">同步错误：${error.message}</p>`;
                 console.error('Error:', error);
             });
         }
