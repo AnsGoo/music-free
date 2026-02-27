@@ -6,7 +6,7 @@ const multer = require('multer');
 const mm = require('music-metadata');
 const sync = require('./sync');
 const webdav = require('./webdav');
-const { detectDuplicateSongs, deleteDuplicateSong } = require('./deduplicate');
+const { detectDuplicateSongs, deleteDuplicateSong, autoDeleteDuplicates } = require('./deduplicate');
 
 const app = express();
 const port = 4040;
