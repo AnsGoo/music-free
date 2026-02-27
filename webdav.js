@@ -1,10 +1,6 @@
 const fs = require('fs');
 const path = require('path');
 const { createClient } = require('webdav');
-const schedule = require('node-schedule');
-
-// 音乐目录路径
-const MUSIC_DIR = path.join(__dirname, 'music');
 
 // WebDAV配置存储
 let webdavConfig = [];
@@ -46,8 +42,7 @@ function addWebdavConfig(config) {
   const id = Date.now().toString();
   const newConfig = {
     id,
-    ...config,
-    lastSync: null
+    ...config
   };
   
   webdavConfig.push(newConfig);
@@ -69,80 +64,51 @@ function getWebdavConfig() {
 
 // 创建WebDAV客户端
 function createWebdavClient(config) {
+  // 确保用户名和密码是字符串且正确编码
+  const username = String(config.username || '');
+  const password = String(config.password || '');
+  
+  // 使用默认方式创建客户端
   return createClient(config.url, {
-    username: config.username,
-    password: config.password
+    username: username,
+    password: password
   });
 }
 
-// 同步单个WebDAV目录
-async function syncWebdavDirectory(config) {
+// 获取WebDAV文件列表
+async function getWebdavFiles(config, remotePath = '/') {
   try {
-    console.log(`Syncing WebDAV directory: ${config.url}`);
-    
     const client = createWebdavClient(config);
-    const remoteFiles = await client.getDirectoryContents('/');
+    const remoteFiles = await client.getDirectoryContents(remotePath);
     
-    // 创建本地挂载目录
-    const mountDir = path.join(MUSIC_DIR, `webdav-${config.id}`);
-    if (!fs.existsSync(mountDir)) {
-      fs.mkdirSync(mountDir, { recursive: true });
-    }
-    
-    // 同步文件
-    for (const item of remoteFiles) {
-      if (item.type === 'file' && /\.(mp3|wav|flac|ogg)$/i.test(item.filename)) {
-        const localPath = path.join(mountDir, item.filename);
-        console.log(`Downloading ${item.filename} from ${config.url}`);
-        
-        // 下载文件
-        const stream = await client.createReadStream(item.filename);
-        const writeStream = fs.createWriteStream(localPath);
-        
-        await new Promise((resolve, reject) => {
-          stream.pipe(writeStream)
-            .on('finish', resolve)
-            .on('error', reject);
-        });
-      }
-    }
-    
-    // 更新同步时间
-    config.lastSync = new Date().toISOString();
-    saveWebdavConfig();
-    console.log(`WebDAV directory synced: ${config.url}`);
+    return remoteFiles.map(item => ({
+      type: item.type,
+      filename: item.filename,
+      basename: path.basename(item.filename),
+      path: item.filename
+    }));
   } catch (error) {
-    console.error(`Error syncing WebDAV directory ${config.url}:`, error);
+    console.error(`Error getting WebDAV files from ${config.url}:`, error);
+    return [];
   }
 }
 
-// 同步所有WebDAV目录
-async function syncAllWebdavDirectories() {
-  console.log('Starting WebDAV sync...');
-  
-  for (const config of webdavConfig) {
-    await syncWebdavDirectory(config);
+// 获取WebDAV文件流
+async function getWebdavFileStream(config, remotePath) {
+  try {
+    const client = createWebdavClient(config);
+    const stream = await client.createReadStream(remotePath);
+    return stream;
+  } catch (error) {
+    console.error(`Error getting WebDAV file stream from ${config.url}:`, error);
+    throw error;
   }
-  
-  console.log('WebDAV sync completed');
-}
-
-// 启动WebDAV同步定时任务
-function startWebdavSyncSchedule() {
-  // 每30分钟同步一次
-  const job = schedule.scheduleJob('*/30 * * * *', syncAllWebdavDirectories);
-  console.log('WebDAV sync schedule started (every 30 minutes)');
-  
-  // 立即执行一次同步
-  syncAllWebdavDirectories();
-  
-  return job;
 }
 
 // 初始化
 function init() {
   loadWebdavConfig();
-  startWebdavSyncSchedule();
+  console.log('WebDAV module initialized');
 }
 
 module.exports = {
@@ -150,6 +116,6 @@ module.exports = {
   addWebdavConfig,
   removeWebdavConfig,
   getWebdavConfig,
-  syncAllWebdavDirectories,
-  syncWebdavDirectory
+  getWebdavFiles,
+  getWebdavFileStream
 };

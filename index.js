@@ -1364,15 +1364,51 @@ app.get('/rest/removeWebdavConfig', authenticate, (req, res) => {
   }
 });
 
-// 手动同步WebDAV
-app.get('/rest/syncWebdav', authenticate, (req, res) => {
-  webdav.syncAllWebdavDirectories()
-    .then(() => {
-      res.json(createResponse({}));
-    })
-    .catch(error => {
-      res.status(500).json(createResponse({ error: { code: 0, message: error.message } }, 'failed'));
-    });
+// 获取WebDAV文件列表
+app.get('/rest/getWebdavFiles', authenticate, async (req, res) => {
+  try {
+    const { configId, path = '/' } = req.query;
+    const config = webdav.getWebdavConfig().find(c => c.id === configId);
+    
+    if (!config) {
+      res.status(404).json(createResponse({ error: { code: 70, message: 'WebDAV config not found' } }, 'failed'));
+      return;
+    }
+    
+    const files = await webdav.getWebdavFiles(config, path);
+    res.json(createResponse({ webdavFiles: files }));
+  } catch (error) {
+    res.status(500).json(createResponse({ error: { code: 0, message: error.message } }, 'failed'));
+  }
+});
+
+// 流式播放WebDAV音乐
+app.get('/rest/streamWebdav', authenticate, async (req, res) => {
+  try {
+    const { configId, path } = req.query;
+    const config = webdav.getWebdavConfig().find(c => c.id === configId);
+    
+    if (!config) {
+      res.status(404).json(createResponse({ error: { code: 70, message: 'WebDAV config not found' } }, 'failed'));
+      return;
+    }
+    
+    if (!path) {
+      res.status(400).json(createResponse({ error: { code: 40, message: 'Path is required' } }, 'failed'));
+      return;
+    }
+    
+    const stream = await webdav.getWebdavFileStream(config, path);
+    
+    // 设置响应头
+    res.setHeader('Content-Type', 'audio/mpeg');
+    res.setHeader('Content-Disposition', 'inline');
+    
+    // 流式传输
+    stream.pipe(res);
+  } catch (error) {
+    res.status(500).json(createResponse({ error: { code: 0, message: error.message } }, 'failed'));
+  }
 });
 
 // 启动服务器

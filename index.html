@@ -487,8 +487,15 @@
                         <!-- WebDAV配置列表将通过JavaScript动态添加 -->
                     </ul>
                 </div>
-                <div class="form-group">
-                    <button type="button" class="btn btn-block" onclick="syncWebdav()">立即同步WebDAV</button>
+                <div class="form-group" id="webdavBrowser" style="display: none;">
+                    <h3>WebDAV文件浏览</h3>
+                    <div class="form-group">
+                        <button type="button" class="btn" onclick="navigateWebdavUp()">上一级</button>
+                        <span id="currentWebdavPath">/</span>
+                    </div>
+                    <ul class="list" id="webdavFilesList">
+                        <!-- WebDAV文件列表将通过JavaScript动态添加 -->
+                    </ul>
                 </div>
                 <div id="webdavResult" style="margin-top: 20px;"></div>
             </div>
@@ -1032,6 +1039,10 @@
             });
         }
         
+        // 全局变量，存储当前WebDAV配置和路径
+        let currentWebdavConfig = null;
+        let currentWebdavPath = '/';
+
         // 加载WebDAV配置列表
         function loadWebdavConfig() {
             fetch(`/rest/getWebdavConfig?${authParams}`)
@@ -1053,7 +1064,10 @@
                                         <br>
                                         <small>最后同步: ${config.lastSync || '未同步'}</small>
                                     </div>
-                                    <button class="btn" onclick="removeWebdavConfig('${config.id}')">删除</button>
+                                    <div>
+                                        <button class="btn" onclick="browseWebdav('${config.id}')">浏览</button>
+                                        <button class="btn" onclick="removeWebdavConfig('${config.id}')">删除</button>
+                                    </div>
                                 `;
                                 webdavList.appendChild(li);
                             });
@@ -1121,29 +1135,90 @@
             }
         }
         
-        // 手动同步WebDAV
-        function syncWebdav() {
-            const resultDiv = document.getElementById('webdavResult');
+        // 浏览WebDAV文件
+        function browseWebdav(configId) {
+            currentWebdavConfig = configId;
+            currentWebdavPath = '/';
+            document.getElementById('currentWebdavPath').textContent = currentWebdavPath;
+            document.getElementById('webdavBrowser').style.display = 'block';
+            loadWebdavFiles();
+        }
 
-            resultDiv.innerHTML = '<p>同步中...</p>';
+        // 加载WebDAV文件列表
+        function loadWebdavFiles() {
+            const filesList = document.getElementById('webdavFilesList');
+            filesList.innerHTML = '<li>加载中...</li>';
 
-            fetch(`/rest/syncWebdav?${authParams}`, {
-                method: 'GET'
-            })
-            .then(response => response.json())
-            .then(data => {
-                if (data['subsonic-response'].status === 'ok') {
-                    resultDiv.innerHTML = '<p style="color: green;">同步成功！</p>';
-                    // 重新加载WebDAV配置列表
-                    loadWebdavConfig();
-                } else {
-                    resultDiv.innerHTML = `<p style="color: red;">同步失败：${data['subsonic-response'].error.message}</p>`;
-                }
-            })
-            .catch(error => {
-                resultDiv.innerHTML = `<p style="color: red;">同步错误：${error.message}</p>`;
-                console.error('Error:', error);
-            });
+            fetch(`/rest/getWebdavFiles?${authParams}&configId=${currentWebdavConfig}&path=${encodeURIComponent(currentWebdavPath)}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data['subsonic-response'].status === 'ok') {
+                        const files = data['subsonic-response'].webdavFiles;
+                        filesList.innerHTML = '';
+
+                        if (files && files.length > 0) {
+                            files.forEach(file => {
+                                const li = document.createElement('li');
+                                if (file.type === 'directory') {
+                                    li.innerHTML = `
+                                        <div>
+                                            <strong>📁 ${file.basename}</strong>
+                                        </div>
+                                        <button class="btn" onclick="navigateWebdav('${file.path}')">进入</button>
+                                    `;
+                                } else if (file.type === 'file') {
+                                    li.innerHTML = `
+                                        <div>
+                                            <strong>🎵 ${file.basename}</strong>
+                                        </div>
+                                        <button class="btn" onclick="playWebdavSong('${file.path}', '${file.basename}')">播放</button>
+                                    `;
+                                }
+                                filesList.appendChild(li);
+                            });
+                        } else {
+                            filesList.innerHTML = '<li>没有找到文件</li>';
+                        }
+                    } else {
+                        filesList.innerHTML = `<li>加载失败：${data['subsonic-response'].error.message}</li>`;
+                    }
+                })
+                .catch(error => {
+                    filesList.innerHTML = `<li>加载错误：${error.message}</li>`;
+                    console.error('Error:', error);
+                });
+        }
+
+        // 导航WebDAV目录
+        function navigateWebdav(path) {
+            currentWebdavPath = path;
+            document.getElementById('currentWebdavPath').textContent = currentWebdavPath;
+            loadWebdavFiles();
+        }
+
+        // 导航到上一级目录
+        function navigateWebdavUp() {
+            if (currentWebdavPath !== '/') {
+                const pathParts = currentWebdavPath.split('/');
+                pathParts.pop();
+                currentWebdavPath = pathParts.join('/') || '/';
+                document.getElementById('currentWebdavPath').textContent = currentWebdavPath;
+                loadWebdavFiles();
+            }
+        }
+
+        // 播放WebDAV歌曲
+        function playWebdavSong(path, filename) {
+            currentSong = { id: path, title: filename, artist: 'WebDAV' };
+            document.getElementById('currentSongTitle').textContent = filename;
+            document.getElementById('currentSongArtist').textContent = 'WebDAV';
+            document.getElementById('player').style.display = 'block';
+
+            const audioPlayer = document.getElementById('audioPlayer');
+            const playButton = document.querySelector('.player-controls .btn:first-child');
+            audioPlayer.src = `/rest/streamWebdav?${authParams}&configId=${currentWebdavConfig}&path=${encodeURIComponent(path)}`;
+            audioPlayer.play();
+            playButton.textContent = '暂停';
         }
     </script>
 </body>
