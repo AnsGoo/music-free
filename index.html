@@ -510,7 +510,19 @@
             <div class="section" id="deduplicate" style="display: none;">
                 <h2>音乐去重</h2>
                 <div class="form-group">
-                    <button type="button" class="btn btn-block" onclick="detectDuplicates()">检测重复音乐</button>
+                    <h3>去重设置</h3>
+                    <div class="form-group">
+                        <label for="deduplicateStrategy">去重策略</label>
+                        <select id="deduplicateStrategy" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 3px;">
+                            <option value="default">默认 (标题+艺术家+专辑+时长)</option>
+                            <option value="strict">严格 (标题+艺术家+专辑+时长+格式)</option>
+                            <option value="loose">宽松 (标题+时长)</option>
+                        </select>
+                    </div>
+                    <div class="view-controls" style="margin-top: 10px;">
+                        <button class="btn" onclick="detectDuplicates()">检测重复音乐</button>
+                        <button class="btn" onclick="autoDeleteDuplicates()">自动删除重复</button>
+                    </div>
                 </div>
                 <div id="duplicatesResult" style="margin-top: 20px;"></div>
                 <div id="duplicatesList" style="margin-top: 20px;"></div>
@@ -1277,11 +1289,12 @@
         function detectDuplicates() {
             const resultDiv = document.getElementById('duplicatesResult');
             const listDiv = document.getElementById('duplicatesList');
+            const strategy = document.getElementById('deduplicateStrategy').value;
             
             resultDiv.innerHTML = '<p>检测中...</p>';
             listDiv.innerHTML = '';
             
-            fetch(`/rest/detectDuplicates?${authParams}`)
+            fetch(`/rest/detectDuplicates?${authParams}&strategy=${strategy}`)
                 .then(response => response.json())
                 .then(data => {
                     if (data['subsonic-response'].status === 'ok') {
@@ -1298,13 +1311,23 @@
                                 groupDiv.style.backgroundColor = '#f9f9f9';
                                 groupDiv.style.borderRadius = '5px';
                                 
+                                // 格式化文件大小
+                                function formatFileSize(bytes) {
+                                    if (bytes === 0) return '0 B';
+                                    const k = 1024;
+                                    const sizes = ['B', 'KB', 'MB', 'GB'];
+                                    const i = Math.floor(Math.log(bytes) / Math.log(k));
+                                    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+                                }
+                                
                                 groupDiv.innerHTML = `
                                     <h4>重复组 ${index + 1}: ${group[0].title} - ${group[0].artist}</h4>
+                                    <p style="margin-bottom: 10px;"><small>建议保留：文件大小最大的版本</small></p>
                                     <ul class="list">
-                                        ${group.map(song => `
-                                            <li>
+                                        ${group.map((song, songIndex) => `
+                                            <li style="${songIndex === 0 ? 'background-color: #e8f5e8;' : ''}">
                                                 <div>
-                                                    <strong>${song.title}</strong>
+                                                    <strong>${song.title}${songIndex === 0 ? ' (建议保留)' : ''}</strong>
                                                     <br>
                                                     <small>艺术家: ${song.artist || '未知'}</small>
                                                     <br>
@@ -1312,9 +1335,13 @@
                                                     <br>
                                                     <small>时长: ${song.duration || 0}秒</small>
                                                     <br>
+                                                    <small>格式: ${song.format || '未知'}</small>
+                                                    <br>
+                                                    <small>文件大小: ${formatFileSize(song.file_size || 0)}</small>
+                                                    <br>
                                                     <small>文件路径: ${song.file_path}</small>
                                                 </div>
-                                                <button class="btn" onclick="deleteDuplicate(${song.id})">删除</button>
+                                                <button class="btn" onclick="deleteDuplicate(${song.id})" ${songIndex === 0 ? 'style="opacity: 0.5; cursor: not-allowed;" disabled' : ''}>删除</button>
                                             </li>
                                         `).join('')}
                                     </ul>
@@ -1357,6 +1384,39 @@
                 })
                 .catch(error => {
                     alert(`删除错误：${error.message}`);
+                    console.error('Error:', error);
+                });
+            }
+        }
+        
+        // 自动删除重复音乐
+        function autoDeleteDuplicates() {
+            const resultDiv = document.getElementById('duplicatesResult');
+            const strategy = document.getElementById('deduplicateStrategy').value;
+            
+            if (confirm('确定要自动删除重复音乐吗？系统会保留文件大小最大的版本，删除其他重复版本。')) {
+                resultDiv.innerHTML = '<p>自动删除中...</p>';
+                
+                fetch(`/rest/autoDeleteDuplicates?${authParams}`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ strategy })
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data['subsonic-response'].status === 'ok') {
+                        const result = data['subsonic-response'].result;
+                        resultDiv.innerHTML = `<p style="color: green;">自动删除完成！共删除了 ${result.deleted} 首重复音乐</p>`;
+                        // 重新检测重复音乐
+                        setTimeout(detectDuplicates, 1000);
+                    } else {
+                        resultDiv.innerHTML = `<p style="color: red;">自动删除失败：${data['subsonic-response'].error.message}</p>`;
+                    }
+                })
+                .catch(error => {
+                    resultDiv.innerHTML = `<p style="color: red;">自动删除错误：${error.message}</p>`;
                     console.error('Error:', error);
                 });
             }

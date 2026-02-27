@@ -1422,7 +1422,8 @@ app.get('/rest/streamWebdav', authenticate, async (req, res) => {
 // 检测重复音乐
 app.get('/rest/detectDuplicates', authenticate, async (req, res) => {
   try {
-    const duplicates = await detectDuplicateSongs();
+    const { strategy = 'default' } = req.query;
+    const duplicates = await detectDuplicateSongs(strategy);
     res.json(createResponse({ duplicates }));
   } catch (error) {
     res.status(500).json(createResponse({ error: { code: 0, message: error.message } }, 'failed'));
@@ -1441,6 +1442,34 @@ app.post('/rest/deleteDuplicate', authenticate, async (req, res) => {
     
     await deleteDuplicateSong(songId);
     res.json(createResponse({ success: true }));
+  } catch (error) {
+    res.status(500).json(createResponse({ error: { code: 0, message: error.message } }, 'failed'));
+  }
+});
+
+// 批量删除重复音乐
+app.post('/rest/deleteDuplicates', authenticate, async (req, res) => {
+  try {
+    const { songIds } = req.body;
+    
+    if (!songIds || !Array.isArray(songIds)) {
+      res.status(400).json(createResponse({ error: { code: 40, message: 'Song IDs array is required' } }, 'failed'));
+      return;
+    }
+    
+    const result = await deleteDuplicateSongs(songIds);
+    res.json(createResponse({ success: true, result }));
+  } catch (error) {
+    res.status(500).json(createResponse({ error: { code: 0, message: error.message } }, 'failed'));
+  }
+});
+
+// 自动删除重复音乐
+app.post('/rest/autoDeleteDuplicates', authenticate, async (req, res) => {
+  try {
+    const { strategy = 'default' } = req.body;
+    const result = await autoDeleteDuplicates(strategy);
+    res.json(createResponse({ success: true, result }));
   } catch (error) {
     res.status(500).json(createResponse({ error: { code: 0, message: error.message } }, 'failed'));
   }
