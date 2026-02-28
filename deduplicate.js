@@ -66,8 +66,14 @@ async function detectDuplicateSongs(strategy = 'default') {
           }
         });
         
-        // 按文件大小排序（从大到小）
-        groupWithSize.sort((a, b) => b.file_size - a.file_size);
+        // 按文件大小排序（从大到小），如果文件大小相同，则按ID排序（保留最早的）
+        groupWithSize.sort((a, b) => {
+          if (b.file_size !== a.file_size) {
+            return b.file_size - a.file_size;
+          } else {
+            return a.id - b.id;
+          }
+        });
         
         return groupWithSize;
       });
@@ -138,19 +144,27 @@ async function deleteDuplicateSongs(songIds) {
 // 自动删除重复音乐（保留最高质量的版本）
 async function autoDeleteDuplicates(strategy = 'default') {
   try {
+    console.log('开始自动删除重复音乐，策略:', strategy);
     const duplicates = await detectDuplicateSongs(strategy);
+    console.log('找到重复歌曲组数量:', duplicates.length);
+    
     const deletedSongs = [];
     
     for (const group of duplicates) {
+      console.log('处理重复歌曲组，包含', group.length, '首歌曲');
+      console.log('保留的歌曲:', group[0].title, '文件大小:', group[0].file_size);
       // 保留第一个（文件最大的），删除其余的
       for (let i = 1; i < group.length; i++) {
+        console.log('删除歌曲:', group[i].title, '文件大小:', group[i].file_size, 'ID:', group[i].id);
         await deleteDuplicateSong(group[i].id);
         deletedSongs.push(group[i]);
       }
     }
     
+    console.log('自动删除完成，共删除', deletedSongs.length, '首重复歌曲');
     return { deleted: deletedSongs.length, songs: deletedSongs };
   } catch (error) {
+    console.error('自动删除重复音乐时出错:', error);
     throw error;
   }
 }
