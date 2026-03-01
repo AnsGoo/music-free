@@ -165,7 +165,19 @@ const dbWrapper = {
       // console.log('Executing SQL:', processedSql);
       db.exec(processedSql);
       saveDB();
-      if (callback) callback(null);
+      // 获取最后插入的ID
+      let lastID = null;
+      if (sql.toLowerCase().startsWith('insert')) {
+        const result = db.exec('SELECT last_insert_rowid() as id');
+        if (result && result.length > 0 && result[0].values.length > 0) {
+          lastID = result[0].values[0][0];
+        }
+      }
+      if (callback) {
+        // 将lastID赋值给this.lastID，以兼容sqlite3 API
+        this.lastID = lastID;
+        callback(null);
+      }
     } catch (error) {
       console.error('Error executing SQL:', error);
       if (callback) callback(error);

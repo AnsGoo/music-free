@@ -456,10 +456,10 @@ app.get('/rest/getLyricsBySongId', authenticate, (req, res) => {
 });
 
 // 流式播放音乐
-app.get('/rest/stream', authenticate, (req, res) => {
+app.get('/rest/stream', authenticate, async (req, res) => {
   const { id } = req.query;
   
-  db.get(`SELECT file_path FROM songs WHERE id = ?`, [id], (err, song) => {
+  db.get(`SELECT file_path FROM songs WHERE id = ?`, [id], async (err, song) => {
     if (err) {
       res.status(500).json(createResponse({ error: { code: 0, message: err.message } }, 'failed'));
       return;
@@ -470,26 +470,62 @@ app.get('/rest/stream', authenticate, (req, res) => {
       return;
     }
     
-    // 确保文件路径正确，避免路径重复
-    let filePath = song.file_path;
-    if (!path.isAbsolute(filePath)) {
-      filePath = path.join(__dirname, filePath);
+    const filePath = song.file_path;
+    
+    // 处理WebDAV路径
+    if (filePath.startsWith('webdav://')) {
+      try {
+        // 解析WebDAV路径格式: webdav://configId/remotePath
+        const match = filePath.match(/^webdav:\/\/(\w+)\/(.*)$/);
+        if (!match) {
+          res.status(400).json(createResponse({ error: { code: 40, message: 'Invalid WebDAV path format' } }, 'failed'));
+          return;
+        }
+        
+        const configId = match[1];
+        const remotePath = '/' + match[2];
+        
+        // 查找WebDAV配置
+        const config = webdav.getWebdavConfig().find(c => c.id === configId);
+        if (!config) {
+          res.status(404).json(createResponse({ error: { code: 70, message: 'WebDAV config not found' } }, 'failed'));
+          return;
+        }
+        
+        // 获取WebDAV文件流
+        const stream = await webdav.getWebdavFileStream(config, remotePath);
+        
+        // 设置响应头
+        res.setHeader('Content-Type', 'audio/mpeg');
+        res.setHeader('Content-Disposition', 'inline');
+        
+        // 流式传输
+        stream.pipe(res);
+      } catch (error) {
+        res.status(500).json(createResponse({ error: { code: 0, message: error.message } }, 'failed'));
+      }
+    } else {
+      // 处理本地文件路径
+      let localPath = filePath;
+      if (!path.isAbsolute(localPath)) {
+        localPath = path.join(__dirname, localPath);
+      }
+      
+      if (!fs.existsSync(localPath)) {
+        res.status(404).json(createResponse({ error: { code: 70, message: 'File not found' } }, 'failed'));
+        return;
+      }
+      
+      // 流式传输文件
+      const stat = fs.statSync(localPath);
+      res.writeHead(200, {
+        'Content-Type': 'audio/mpeg',
+        'Content-Length': stat.size
+      });
+      
+      const readStream = fs.createReadStream(localPath);
+      readStream.pipe(res);
     }
-    
-    if (!fs.existsSync(filePath)) {
-      res.status(404).json(createResponse({ error: { code: 70, message: 'File not found' } }, 'failed'));
-      return;
-    }
-    
-    // 流式传输文件
-    const stat = fs.statSync(filePath);
-    res.writeHead(200, {
-      'Content-Type': 'audio/mpeg',
-      'Content-Length': stat.size
-    });
-    
-    const readStream = fs.createReadStream(filePath);
-    readStream.pipe(res);
   });
 });
 
@@ -1089,17 +1125,27 @@ app.get('/rest/savePlayQueue', authenticate, (req, res) => {
 
 // 媒体库扫描接口
 app.get('/rest/getScanStatus', authenticate, (req, res) => {
+  const status = sync.getScanStatus();
   res.json(createResponse({ 
     scanStatus: {
-      scanning: false,
-      count: 0,
-      scanned: 0
+      scanning: status.scanning,
+      count: status.totalFiles,
+      scanned: status.processedFiles,
+      failed: status.failedFiles,
+      startTime: status.startTime,
+      endTime: status.endTime
     }
   }));
 });
 
 app.get('/rest/startScan', authenticate, (req, res) => {
-  res.json(createResponse({}));
+  sync.syncMusicFiles()
+    .then(() => {
+      res.json(createResponse({}));
+    })
+    .catch(error => {
+      res.status(500).json(createResponse({ error: { code: 0, message: error.message } }, 'failed'));
+    });
 });
 
 // 上传音乐文件
