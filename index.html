@@ -995,8 +995,30 @@
             const audioPlayer = document.getElementById('audioPlayer');
             const playButton = document.querySelector('.player-controls .btn:first-child');
             audioPlayer.src = `/rest/stream?${authParams}&id=${id}`;
-            audioPlayer.play();
-            playButton.textContent = '暂停';
+            console.log('设置音频源:', audioPlayer.src);
+            
+            // 添加错误处理
+            audioPlayer.addEventListener('error', function(e) {
+                console.error('音频播放错误:', e);
+                console.error('错误代码:', e.target.error.code);
+                console.error('错误消息:', e.target.error.message);
+            });
+            
+            // 等待音频加载完成后播放
+            audioPlayer.addEventListener('canplay', function() {
+                console.log('音频可以播放了');
+                audioPlayer.play().then(function() {
+                    console.log('播放成功');
+                    playButton.textContent = '暂停';
+                }).catch(function(error) {
+                    console.error('播放失败:', error);
+                });
+            });
+            
+            // 加载元数据
+            audioPlayer.addEventListener('loadedmetadata', function() {
+                console.log('音频元数据加载完成:', audioPlayer.duration);
+            });
         }
 
         // 播放/暂停

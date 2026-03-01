@@ -505,28 +505,122 @@ app.get('/rest/stream', authenticate, async (req, res) => {
         
         // 检查是否需要转码（不区分大小写）
         if (needTranscode.includes((format || '').toLowerCase())) {
-          // 使用ffmpeg进行转码
-          const { spawn } = require('child_process');
-          const ffmpeg = spawn('ffmpeg', [
-            '-i', 'pipe:0',
-            '-f', 'mp3',
-            '-b:a', '320k',
-            'pipe:1'
-          ]);
-          
-          // 处理错误
-          ffmpeg.stderr.on('data', (data) => {
-            console.error('ffmpeg error:', data.toString());
-          });
-          
-          ffmpeg.on('error', (error) => {
-            console.error('ffmpeg spawn error:', error);
-            res.status(500).json(createResponse({ error: { code: 0, message: 'Transcoding failed' } }, 'failed'));
-          });
-          
-          // 流式传输
-          stream.pipe(ffmpeg.stdin);
-          ffmpeg.stdout.pipe(res);
+          try {
+            // 生成临时文件路径
+            const tempPath = path.join(__dirname, 'temp', `transcoded_webdav_${Date.now()}.mp3`);
+            
+            // 确保临时目录存在
+            if (!fs.existsSync(path.join(__dirname, 'temp'))) {
+              fs.mkdirSync(path.join(__dirname, 'temp'));
+            }
+            
+            // 首先将WebDAV流保存到临时文件
+            const tempFlacPath = path.join(__dirname, 'temp', `temp_flac_${Date.now()}.flac`);
+            const writeStream = fs.createWriteStream(tempFlacPath);
+            
+            stream.pipe(writeStream);
+            
+            writeStream.on('finish', () => {
+              // 使用ffmpeg进行转码到临时文件
+              const { spawnSync } = require('child_process');
+              const ffmpeg = spawnSync('ffmpeg', [
+                '-i', tempFlacPath,
+                '-acodec', 'libmp3lame',
+                '-b:a', '320k',
+                '-id3v2_version', '3',
+                '-write_id3v1', '1',
+                '-metadata', 'encoder=LAME3.100',
+                '-loglevel', 'warning',
+                '-nostdin',
+                tempPath
+              ]);
+              
+              // 检查转码是否成功
+              if (ffmpeg.status !== 0) {
+                console.error('ffmpeg transcoding failed:', ffmpeg.stderr.toString());
+                if (!res.headersSent) {
+                  res.status(500).json(createResponse({ error: { code: 0, message: 'Transcoding failed' } }, 'failed'));
+                }
+                // 清理临时文件
+                try {
+                  if (fs.existsSync(tempFlacPath)) fs.unlinkSync(tempFlacPath);
+                } catch (error) {
+                  console.error('Error deleting temp FLAC file:', error);
+                }
+                return;
+              }
+              
+              // 检查临时文件是否存在
+              if (!fs.existsSync(tempPath)) {
+                if (!res.headersSent) {
+                  res.status(500).json(createResponse({ error: { code: 0, message: 'Transcoding failed: temp file not created' } }, 'failed'));
+                }
+                // 清理临时文件
+                try {
+                  if (fs.existsSync(tempFlacPath)) fs.unlinkSync(tempFlacPath);
+                } catch (error) {
+                  console.error('Error deleting temp FLAC file:', error);
+                }
+                return;
+              }
+              
+              // 设置响应头
+              const stat = fs.statSync(tempPath);
+              res.writeHead(200, {
+                'Content-Type': 'audio/mpeg',
+                'Content-Length': stat.size,
+                'Content-Disposition': 'inline',
+                'Cache-Control': 'no-cache',
+                'Access-Control-Allow-Origin': '*'
+              });
+              
+              // 流式传输临时文件
+              const readStream = fs.createReadStream(tempPath);
+              readStream.pipe(res);
+              
+              // 处理响应结束事件，删除临时文件
+              res.on('finish', () => {
+                setTimeout(() => {
+                  try {
+                    if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath);
+                    if (fs.existsSync(tempFlacPath)) fs.unlinkSync(tempFlacPath);
+                  } catch (error) {
+                    console.error('Error deleting temp files:', error);
+                  }
+                }, 1000);
+              });
+              
+              // 处理响应关闭事件
+              res.on('close', () => {
+                setTimeout(() => {
+                  try {
+                    if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath);
+                    if (fs.existsSync(tempFlacPath)) fs.unlinkSync(tempFlacPath);
+                  } catch (error) {
+                    console.error('Error deleting temp files:', error);
+                  }
+                }, 1000);
+              });
+            });
+            
+            writeStream.on('error', (error) => {
+              console.error('Error writing temp FLAC file:', error);
+              if (!res.headersSent) {
+                res.status(500).json(createResponse({ error: { code: 0, message: 'Failed to save WebDAV file' } }, 'failed'));
+              }
+              // 清理临时文件
+              try {
+                if (fs.existsSync(tempFlacPath)) fs.unlinkSync(tempFlacPath);
+              } catch (error) {
+                console.error('Error deleting temp FLAC file:', error);
+              }
+            });
+          } catch (error) {
+            console.error('WebDAV transcoding error:', error);
+            if (!res.headersSent) {
+              res.status(500).json(createResponse({ error: { code: 0, message: 'Transcoding failed' } }, 'failed'));
+            }
+          }
         } else {
           // 直接流式传输
           stream.pipe(res);
@@ -550,34 +644,89 @@ app.get('/rest/stream', authenticate, async (req, res) => {
       // 检查是否需要转码（不区分大小写）
       if (needTranscode.includes((format || '').toLowerCase())) {
         try {
-          // 使用ffmpeg进行转码
-          const { spawn } = require('child_process');
-          const ffmpeg = spawn('ffmpeg', [
+          // 生成临时文件路径
+          const tempPath = path.join(__dirname, 'temp', `transcoded_${Date.now()}.mp3`);
+          
+          // 确保临时目录存在
+          if (!fs.existsSync(path.join(__dirname, 'temp'))) {
+            fs.mkdirSync(path.join(__dirname, 'temp'));
+          }
+          
+          // 使用ffmpeg进行转码到临时文件
+          const { spawnSync } = require('child_process');
+          const ffmpeg = spawnSync('ffmpeg', [
             '-i', localPath,
-            '-f', 'mp3',
+            '-acodec', 'libmp3lame',
             '-b:a', '320k',
-            'pipe:1'
+            '-id3v2_version', '3',
+            '-write_id3v1', '1',
+            '-metadata', 'encoder=LAME3.100',
+            '-loglevel', 'warning',
+            '-nostdin',
+            tempPath
           ]);
           
+          // 检查转码是否成功
+          if (ffmpeg.status !== 0) {
+            console.error('ffmpeg transcoding failed:', ffmpeg.stderr.toString());
+            if (!res.headersSent) {
+              res.status(500).json(createResponse({ error: { code: 0, message: 'Transcoding failed' } }, 'failed'));
+            }
+            return;
+          }
+          
+          // 检查临时文件是否存在
+          if (!fs.existsSync(tempPath)) {
+            if (!res.headersSent) {
+              res.status(500).json(createResponse({ error: { code: 0, message: 'Transcoding failed: temp file not created' } }, 'failed'));
+            }
+            return;
+          }
+          
           // 设置响应头
-          res.setHeader('Content-Type', 'audio/mpeg');
-          res.setHeader('Content-Disposition', 'inline');
-          
-          // 处理错误
-          ffmpeg.stderr.on('data', (data) => {
-            console.error('ffmpeg error:', data.toString());
+          const stat = fs.statSync(tempPath);
+          res.writeHead(200, {
+            'Content-Type': 'audio/mpeg',
+            'Content-Length': stat.size,
+            'Content-Disposition': 'inline',
+            'Cache-Control': 'no-cache',
+            'Access-Control-Allow-Origin': '*'
           });
           
-          ffmpeg.on('error', (error) => {
-            console.error('ffmpeg spawn error:', error);
-            res.status(500).json(createResponse({ error: { code: 0, message: 'Transcoding failed' } }, 'failed'));
+          // 流式传输临时文件
+          const readStream = fs.createReadStream(tempPath);
+          readStream.pipe(res);
+          
+          // 处理响应结束事件，删除临时文件
+          res.on('finish', () => {
+            setTimeout(() => {
+              try {
+                if (fs.existsSync(tempPath)) {
+                  fs.unlinkSync(tempPath);
+                }
+              } catch (error) {
+                console.error('Error deleting temp file:', error);
+              }
+            }, 1000);
           });
           
-          // 流式传输
-          ffmpeg.stdout.pipe(res);
+          // 处理响应关闭事件
+          res.on('close', () => {
+            setTimeout(() => {
+              try {
+                if (fs.existsSync(tempPath)) {
+                  fs.unlinkSync(tempPath);
+                }
+              } catch (error) {
+                console.error('Error deleting temp file:', error);
+              }
+            }, 1000);
+          });
         } catch (error) {
           console.error('Local file transcoding error:', error);
-          res.status(500).json(createResponse({ error: { code: 0, message: 'Transcoding failed' } }, 'failed'));
+          if (!res.headersSent) {
+            res.status(500).json(createResponse({ error: { code: 0, message: 'Transcoding failed' } }, 'failed'));
+          }
         }
       } else {
         // 直接流式传输文件
@@ -585,14 +734,18 @@ app.get('/rest/stream', authenticate, async (req, res) => {
           const stat = fs.statSync(localPath);
           res.writeHead(200, {
             'Content-Type': 'audio/mpeg',
-            'Content-Length': stat.size
+            'Content-Length': stat.size,
+            'Cache-Control': 'no-cache',
+            'Access-Control-Allow-Origin': '*'
           });
           
           const readStream = fs.createReadStream(localPath);
           readStream.pipe(res);
         } catch (error) {
           console.error('Local file streaming error:', error);
-          res.status(500).json(createResponse({ error: { code: 0, message: 'Streaming failed' } }, 'failed'));
+          if (!res.headersSent) {
+            res.status(500).json(createResponse({ error: { code: 0, message: 'Streaming failed' } }, 'failed'));
+          }
         }
       }
     }
@@ -1596,8 +1749,9 @@ app.listen(port, () => {
   console.log(`音乐服务器运行在 http://localhost:${port}`);
   // 等待数据库初始化完成后再启动同步
   setTimeout(() => {
-    sync.init();
-    // 初始化WebDAV
-    webdav.init();
+    // 暂时禁用同步初始化，以便快速测试FLAC播放功能
+    // sync.init();
+    // 暂时禁用WebDAV初始化，以便快速测试FLAC播放功能
+    // webdav.init();
   }, 1000);
 });
