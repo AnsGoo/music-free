@@ -133,6 +133,17 @@ app.get('/rest/getMusicFolders', authenticate, (req, res) => {
   }));
 });
 
+// 获取歌曲总数
+app.get('/rest/getSongCount', authenticate, (req, res) => {
+  db.get(`SELECT COUNT(*) as count FROM songs`, (err, row) => {
+    if (err) {
+      res.status(500).json(createResponse({ error: { code: 0, message: err.message } }, 'failed'));
+      return;
+    }
+    res.json(createResponse({ songCount: { count: row.count } }));
+  });
+});
+
 app.get('/rest/getGenres', authenticate, (req, res) => {
   res.json(createResponse({ 
     genres: {
@@ -1749,9 +1760,9 @@ app.listen(port, () => {
   console.log(`音乐服务器运行在 http://localhost:${port}`);
   // 等待数据库初始化完成后再启动同步
   setTimeout(() => {
-    // 暂时禁用同步初始化，以便快速测试FLAC播放功能
-    // sync.init();
-    // 暂时禁用WebDAV初始化，以便快速测试FLAC播放功能
-    // webdav.init();
+    // 启动同步服务
+    sync.init();
+    // 启动WebDAV服务
+    webdav.init();
   }, 1000);
 });
