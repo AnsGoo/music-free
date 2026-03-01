@@ -473,8 +473,8 @@ app.get('/rest/stream', authenticate, async (req, res) => {
     const filePath = song.file_path;
     const format = song.format;
     
-    // 需要转码的格式
-    const needTranscode = ['FLAC', 'WAV', 'OGG'];
+    // 需要转码的格式（不区分大小写）
+    const needTranscode = ['flac', 'wav', 'ogg'];
     
     // 处理WebDAV路径
     if (filePath.startsWith('webdav://')) {
@@ -503,8 +503,8 @@ app.get('/rest/stream', authenticate, async (req, res) => {
         res.setHeader('Content-Type', 'audio/mpeg');
         res.setHeader('Content-Disposition', 'inline');
         
-        // 检查是否需要转码
-        if (needTranscode.includes(format)) {
+        // 检查是否需要转码（不区分大小写）
+        if (needTranscode.includes((format || '').toLowerCase())) {
           // 使用ffmpeg进行转码
           const { spawn } = require('child_process');
           const ffmpeg = spawn('ffmpeg', [
@@ -532,6 +532,7 @@ app.get('/rest/stream', authenticate, async (req, res) => {
           stream.pipe(res);
         }
       } catch (error) {
+        console.error('WebDAV streaming error:', error);
         res.status(500).json(createResponse({ error: { code: 0, message: error.message } }, 'failed'));
       }
     } else {
@@ -546,43 +547,53 @@ app.get('/rest/stream', authenticate, async (req, res) => {
         return;
       }
       
-      // 检查是否需要转码
-      if (needTranscode.includes(format)) {
-        // 使用ffmpeg进行转码
-        const { spawn } = require('child_process');
-        const ffmpeg = spawn('ffmpeg', [
-          '-i', localPath,
-          '-f', 'mp3',
-          '-b:a', '320k',
-          'pipe:1'
-        ]);
-        
-        // 设置响应头
-        res.setHeader('Content-Type', 'audio/mpeg');
-        res.setHeader('Content-Disposition', 'inline');
-        
-        // 处理错误
-        ffmpeg.stderr.on('data', (data) => {
-          console.error('ffmpeg error:', data.toString());
-        });
-        
-        ffmpeg.on('error', (error) => {
-          console.error('ffmpeg spawn error:', error);
+      // 检查是否需要转码（不区分大小写）
+      if (needTranscode.includes((format || '').toLowerCase())) {
+        try {
+          // 使用ffmpeg进行转码
+          const { spawn } = require('child_process');
+          const ffmpeg = spawn('ffmpeg', [
+            '-i', localPath,
+            '-f', 'mp3',
+            '-b:a', '320k',
+            'pipe:1'
+          ]);
+          
+          // 设置响应头
+          res.setHeader('Content-Type', 'audio/mpeg');
+          res.setHeader('Content-Disposition', 'inline');
+          
+          // 处理错误
+          ffmpeg.stderr.on('data', (data) => {
+            console.error('ffmpeg error:', data.toString());
+          });
+          
+          ffmpeg.on('error', (error) => {
+            console.error('ffmpeg spawn error:', error);
+            res.status(500).json(createResponse({ error: { code: 0, message: 'Transcoding failed' } }, 'failed'));
+          });
+          
+          // 流式传输
+          ffmpeg.stdout.pipe(res);
+        } catch (error) {
+          console.error('Local file transcoding error:', error);
           res.status(500).json(createResponse({ error: { code: 0, message: 'Transcoding failed' } }, 'failed'));
-        });
-        
-        // 流式传输
-        ffmpeg.stdout.pipe(res);
+        }
       } else {
         // 直接流式传输文件
-        const stat = fs.statSync(localPath);
-        res.writeHead(200, {
-          'Content-Type': 'audio/mpeg',
-          'Content-Length': stat.size
-        });
-        
-        const readStream = fs.createReadStream(localPath);
-        readStream.pipe(res);
+        try {
+          const stat = fs.statSync(localPath);
+          res.writeHead(200, {
+            'Content-Type': 'audio/mpeg',
+            'Content-Length': stat.size
+          });
+          
+          const readStream = fs.createReadStream(localPath);
+          readStream.pipe(res);
+        } catch (error) {
+          console.error('Local file streaming error:', error);
+          res.status(500).json(createResponse({ error: { code: 0, message: 'Streaming failed' } }, 'failed'));
+        }
       }
     }
   });
