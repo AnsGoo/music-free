@@ -3,6 +3,7 @@ const path = require('path');
 const schedule = require('node-schedule');
 const mm = require('music-metadata');
 const db = require('./db');
+const webdav = require('./webdav');
 
 // 音乐目录路径
 const MUSIC_DIR = path.join(__dirname, 'music');
@@ -198,16 +199,108 @@ function processDeletedFile(filePath) {
   });
 }
 
+// 扫描WebDAV目录
+async function scanWebdavDirectories() {
+  try {
+    // 确保WebDAV模块已初始化
+    webdav.init();
+    
+    const configs = webdav.getWebdavConfig();
+    const webdavFiles = [];
+    
+    console.log(`Found ${configs.length} WebDAV configurations`);
+    
+    for (const config of configs) {
+      console.log(`Scanning WebDAV directory: ${config.url}`);
+      const files = await scanWebdavDirectory(config, '/');
+      console.log(`Found ${files.length} files in ${config.url}`);
+      webdavFiles.push(...files);
+    }
+    
+    console.log(`Total WebDAV files found: ${webdavFiles.length}`);
+    return webdavFiles;
+  } catch (error) {
+    console.error('Error scanning WebDAV directories:', error);
+    return [];
+  }
+}
+
+// 递归扫描WebDAV目录
+async function scanWebdavDirectory(config, remotePath) {
+  try {
+    const files = [];
+    const remoteFiles = await webdav.getWebdavFiles(config, remotePath);
+    
+    for (const item of remoteFiles) {
+      if (item.type === 'directory') {
+        // 递归扫描子目录
+        const subFiles = await scanWebdavDirectory(config, item.path);
+        files.push(...subFiles);
+      } else if (item.type === 'file' && /\.(mp3|wav|flac|ogg)$/i.test(item.filename)) {
+        // 只处理音乐文件
+        files.push({ config, path: item.path, filename: item.basename });
+      }
+    }
+    
+    return files;
+  } catch (error) {
+    console.error(`Error scanning WebDAV directory ${remotePath}:`, error);
+    return [];
+  }
+}
+
+// 处理WebDAV音乐文件
+async function processWebdavFile(webdavFile) {
+  try {
+    const { config, path: remotePath, filename } = webdavFile;
+    const webdavPath = `webdav://${config.id}${remotePath}`;
+    
+    // 检查文件是否已处理
+    if (!processedFiles.has(webdavPath)) {
+      // 获取文件流
+      const stream = await webdav.getWebdavFileStream(config, remotePath);
+      
+      // 临时文件路径
+      const tempPath = path.join(__dirname, 'music', `webdav_${config.id}_${Date.now()}_${filename}`);
+      
+      // 写入临时文件
+      const writeStream = fs.createWriteStream(tempPath);
+      await new Promise((resolve, reject) => {
+        stream.pipe(writeStream);
+        writeStream.on('finish', resolve);
+        writeStream.on('error', reject);
+      });
+      
+      // 处理临时文件
+      await processNewFile(tempPath);
+      
+      // 从已处理文件列表中移除临时文件路径
+      const tempRelativePath = path.relative(__dirname, tempPath);
+      processedFiles.delete(tempRelativePath);
+      
+      // 添加WebDAV路径到已处理文件列表
+      processedFiles.set(webdavPath, { mtime: Date.now() });
+      
+      // 删除临时文件
+      fs.unlinkSync(tempPath);
+      
+      console.log(`Added WebDAV song: ${filename} from ${config.url}`);
+    }
+  } catch (error) {
+    console.error('Error processing WebDAV file:', error);
+  }
+}
+
 // 同步音乐文件
 async function syncMusicFiles() {
   console.log('Starting music sync...');
   
   try {
-    // 扫描目录
-    const files = scanDirectory(MUSIC_DIR);
+    // 扫描本地目录
+    const localFiles = scanDirectory(MUSIC_DIR);
     
-    // 检查新增的文件
-    for (const file of files) {
+    // 检查新增的本地文件
+    for (const file of localFiles) {
       const relativePath = path.relative(__dirname, file);
       const stats = fs.statSync(file);
       const mtime = stats.mtime.getTime();
@@ -225,10 +318,18 @@ async function syncMusicFiles() {
       }
     }
     
+    // 扫描WebDAV目录
+    const webdavFiles = await scanWebdavDirectories();
+    
+    // 检查新增的WebDAV文件
+    for (const file of webdavFiles) {
+      await processWebdavFile(file);
+    }
+    
     // 检查删除的文件
     for (const [filePath] of processedFiles) {
-      if (!fs.existsSync(path.join(__dirname, filePath))) {
-        // 文件被删除
+      if (!filePath.startsWith('webdav://') && !fs.existsSync(path.join(__dirname, filePath))) {
+        // 本地文件被删除
         processDeletedFile(filePath);
       }
     }
