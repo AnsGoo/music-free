@@ -4,6 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>音乐服务器</title>
+    <!-- ffmpegwasm 依赖 -->
+    <script src="https://unpkg.com/@ffmpeg/ffmpeg@0.11.6/dist/ffmpeg.min.js"></script>
     <style>
         * {
             margin: 0;
@@ -211,16 +213,10 @@
         .player-content {
             display: flex;
             align-items: center;
-            justify-content: space-between;
         }
 
         .player-info {
             flex: 1;
-        }
-
-        .player-controls {
-            display: flex;
-            gap: 10px;
         }
 
         .player audio {
@@ -356,6 +352,7 @@
                     <li><a href="#" onclick="showSection('sync')">同步</a></li>
                     <li><a href="#" onclick="showSection('webdav')">WebDAV</a></li>
                     <li><a href="#" onclick="showSection('deduplicate')">去重</a></li>
+                    <li><a href="#" onclick="showSection('settings')">设置</a></li>
                     <li><a href="#" onclick="logout()">退出</a></li>
                 </ul>
             </nav>
@@ -541,6 +538,30 @@
                 <div id="duplicatesResult" style="margin-top: 20px;"></div>
                 <div id="duplicatesList" style="margin-top: 20px;"></div>
             </div>
+            
+            <!-- 设置 -->
+            <div class="section" id="settings" style="display: none;">
+                <h2>设置</h2>
+                <div class="form-group">
+                    <h3>转码设置</h3>
+                    <div class="form-group">
+                        <label for="transcodeMode">转码方式</label>
+                        <select id="transcodeMode" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 3px;">
+                            <option value="server">服务器端转码</option>
+                            <option value="client">浏览器端转码 (ffmpegwasm)</option>
+                        </select>
+                    </div>
+                    <div class="form-group" style="margin-top: 10px;">
+                        <button class="btn btn-block" onclick="saveSettings()">保存设置</button>
+                    </div>
+                    <div id="settingsResult" style="margin-top: 10px;"></div>
+                </div>
+                <div class="form-group">
+                    <h3>关于</h3>
+                    <p>音乐服务器 v1.0</p>
+                    <p>支持 FLAC、WAV、OGG 等格式的音频转码</p>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -550,10 +571,6 @@
             <div class="player-info">
                 <h3 id="currentSongTitle">未播放</h3>
                 <p id="currentSongArtist">-</p>
-            </div>
-            <div class="player-controls">
-                <button class="btn" onclick="playPause()">播放</button>
-                <button class="btn" onclick="stop()">停止</button>
             </div>
         </div>
         <audio id="audioPlayer" controls>
@@ -577,7 +594,25 @@
                 document.getElementById('content').style.display = 'block';
                 loadHome();
             }
+            
+            // 预加载ffmpeg.wasm
+            preloadFFmpeg();
         };
+        
+        // 预加载ffmpeg.wasm
+        async function preloadFFmpeg() {
+            try {
+                console.log('正在预加载ffmpeg.wasm...');
+                if (!ffmpeg.isLoaded()) {
+                    await ffmpeg.load();
+                    console.log('ffmpeg.wasm预加载完成');
+                } else {
+                    console.log('ffmpeg.wasm已经加载');
+                }
+            } catch (error) {
+                console.error('ffmpeg.wasm预加载失败:', error);
+            }
+        }
 
         // 登录
         function login() {
@@ -612,6 +647,7 @@
             document.getElementById('sync').style.display = 'none';
             document.getElementById('webdav').style.display = 'none';
             document.getElementById('deduplicate').style.display = 'none';
+            document.getElementById('settings').style.display = 'none';
 
             // 显示选中部分
             document.getElementById(sectionId).style.display = 'block';
@@ -625,7 +661,26 @@
                 loadPlaylists();
             } else if (sectionId === 'webdav') {
                 loadWebdavConfig();
+            } else if (sectionId === 'settings') {
+                loadSettings();
             }
+        }
+
+        // 加载设置
+        function loadSettings() {
+            const transcodeMode = localStorage.getItem('transcodeMode') || 'server';
+            document.getElementById('transcodeMode').value = transcodeMode;
+        }
+
+        // 保存设置
+        function saveSettings() {
+            const transcodeMode = document.getElementById('transcodeMode').value;
+            localStorage.setItem('transcodeMode', transcodeMode);
+            const resultDiv = document.getElementById('settingsResult');
+            resultDiv.innerHTML = '<p style="color: green;">设置保存成功！</p>';
+            setTimeout(() => {
+                resultDiv.innerHTML = '';
+            }, 2000);
         }
 
         // 加载首页
@@ -682,16 +737,24 @@
                             if (songs && songs.length > 0) {
                                 songs.forEach(song => {
                                     const li = document.createElement('li');
-                                    li.innerHTML = `
-                                        <div>
-                                            <strong>${song.title}</strong>
-                                            <br>
-                                            <small>${song.artist} - ${song.album}</small>
-                                            <br>
-                                            <small>格式: ${song.format || '未知'} | 质量: ${song.quality || '未知'} | 时长: ${song.duration || 0}秒</small>
-                                        </div>
-                                        <button class="play-btn" onclick="playSong(${song.id}, '${song.title}', '${song.artist}')">播放</button>
+                                    const button = document.createElement('button');
+                                    button.className = 'play-btn';
+                                    button.textContent = '播放';
+                                    button.onclick = function() {
+                                        playSong(song.id, song.title, song.artist);
+                                    };
+                                    
+                                    const div = document.createElement('div');
+                                    div.innerHTML = `
+                                        <strong>${song.title}</strong>
+                                        <br>
+                                        <small>${song.artist} - ${song.album}</small>
+                                        <br>
+                                        <small>格式: ${song.format || '未知'} | 质量: ${song.quality || '未知'} | 时长: ${song.duration || 0}秒</small>
                                     `;
+                                    
+                                    li.appendChild(div);
+                                    li.appendChild(button);
                                     songsList.appendChild(li);
                                 });
                             } else {
@@ -706,14 +769,29 @@
                                     const card = document.createElement('div');
                                     card.className = 'song-card';
                                     const coverArt = song.coverArt ? `<img src="/music/${song.coverArt.split('/').pop()}" alt="${song.album}" class="card-cover">` : '<div class="card-cover-placeholder">无封面</div>';
-                                    card.innerHTML = `
-                                        <div class="card-cover-container">
-                                            ${coverArt}
-                                        </div>
-                                        <h4>${song.title}</h4>
-                                        <p>${song.artist} - ${song.album}</p>
-                                        <button class="btn" onclick="playSong(${song.id}, '${song.title}', '${song.artist}')">播放</button>
-                                    `;
+                                    
+                                    const coverContainer = document.createElement('div');
+                                    coverContainer.className = 'card-cover-container';
+                                    coverContainer.innerHTML = coverArt;
+                                    
+                                    const titleElement = document.createElement('h4');
+                                    titleElement.textContent = song.title;
+                                    
+                                    const infoElement = document.createElement('p');
+                                    infoElement.textContent = `${song.artist} - ${song.album}`;
+                                    
+                                    const button = document.createElement('button');
+                                    button.className = 'btn';
+                                    button.textContent = '播放';
+                                    button.onclick = function() {
+                                        playSong(song.id, song.title, song.artist);
+                                    };
+                                    
+                                    card.appendChild(coverContainer);
+                                    card.appendChild(titleElement);
+                                    card.appendChild(infoElement);
+                                    card.appendChild(button);
+                                    
                                     songsCard.appendChild(card);
                                 });
                             } else {
@@ -859,14 +937,22 @@
                             songCountElement.textContent = `专辑 "${album.name}" 歌曲数量: ${songs.length}`;
                             songs.forEach(song => {
                                 const li = document.createElement('li');
-                                li.innerHTML = `
-                                    <div>
-                                        <strong>${song.title}</strong>
-                                        <br>
-                                        <small>${album.artist} - ${album.name}</small>
-                                    </div>
-                                    <button class="play-btn" onclick="playSong(${song.id}, '${song.title}', '${album.artist}')">播放</button>
+                                const button = document.createElement('button');
+                                button.className = 'play-btn';
+                                button.textContent = '播放';
+                                button.onclick = function() {
+                                    playSong(song.id, song.title, album.artist);
+                                };
+                                
+                                const div = document.createElement('div');
+                                div.innerHTML = `
+                                    <strong>${song.title}</strong>
+                                    <br>
+                                    <small>${album.artist} - ${album.name}</small>
                                 `;
+                                
+                                li.appendChild(div);
+                                li.appendChild(button);
                                 songsList.appendChild(li);
                             });
                         } else {
@@ -929,14 +1015,22 @@
                             songCountElement.textContent = `歌单 "${playlist.name}" 歌曲数量: ${songs.length}`;
                             songs.forEach(song => {
                                 const li = document.createElement('li');
-                                li.innerHTML = `
-                                    <div>
-                                        <strong>${song.title}</strong>
-                                        <br>
-                                        <small>${song.artist} - ${song.album}</small>
-                                    </div>
-                                    <button class="play-btn" onclick="playSong(${song.id}, '${song.title}', '${song.artist}')">播放</button>
+                                const button = document.createElement('button');
+                                button.className = 'play-btn';
+                                button.textContent = '播放';
+                                button.onclick = function() {
+                                    playSong(song.id, song.title, song.artist);
+                                };
+                                
+                                const div = document.createElement('div');
+                                div.innerHTML = `
+                                    <strong>${song.title}</strong>
+                                    <br>
+                                    <small>${song.artist} - ${song.album}</small>
                                 `;
+                                
+                                li.appendChild(div);
+                                li.appendChild(button);
                                 songsList.appendChild(li);
                             });
                         } else {
@@ -985,16 +1079,24 @@
                                 if (songs && songs.length > 0) {
                                     songs.forEach(song => {
                                         const li = document.createElement('li');
-                                        li.innerHTML = `
-                                            <div>
-                                                <strong>${song.title}</strong>
-                                                <br>
-                                                <small>${song.artist} - ${song.album}</small>
-                                                <br>
-                                                <small>格式: ${song.format || '未知'} | 质量: ${song.quality || '未知'} | 时长: ${song.duration || 0}秒</small>
-                                            </div>
-                                            <button class="play-btn" onclick="playSong(${song.id}, '${song.title}', '${song.artist}')">播放</button>
+                                        const button = document.createElement('button');
+                                        button.className = 'play-btn';
+                                        button.textContent = '播放';
+                                        button.onclick = function() {
+                                            playSong(song.id, song.title, song.artist);
+                                        };
+                                        
+                                        const div = document.createElement('div');
+                                        div.innerHTML = `
+                                            <strong>${song.title}</strong>
+                                            <br>
+                                            <small>${song.artist} - ${song.album}</small>
+                                            <br>
+                                            <small>格式: ${song.format || '未知'} | 质量: ${song.quality || '未知'} | 时长: ${song.duration || 0}秒</small>
                                         `;
+                                        
+                                        li.appendChild(div);
+                                        li.appendChild(button);
                                         songsList.appendChild(li);
                                     });
                                 } else {
@@ -1009,14 +1111,29 @@
                                         const card = document.createElement('div');
                                         card.className = 'song-card';
                                         const coverArt = song.coverArt ? `<img src="/music/${song.coverArt.split('/').pop()}" alt="${song.album}" class="card-cover">` : '<div class="card-cover-placeholder">无封面</div>';
-                                        card.innerHTML = `
-                                            <div class="card-cover-container">
-                                                ${coverArt}
-                                            </div>
-                                            <h4>${song.title}</h4>
-                                            <p>${song.artist} - ${song.album}</p>
-                                            <button class="btn" onclick="playSong(${song.id}, '${song.title}', '${song.artist}')">播放</button>
-                                        `;
+                                        
+                                        const coverContainer = document.createElement('div');
+                                        coverContainer.className = 'card-cover-container';
+                                        coverContainer.innerHTML = coverArt;
+                                        
+                                        const titleElement = document.createElement('h4');
+                                        titleElement.textContent = song.title;
+                                        
+                                        const infoElement = document.createElement('p');
+                                        infoElement.textContent = `${song.artist} - ${song.album}`;
+                                        
+                                        const button = document.createElement('button');
+                                        button.className = 'btn';
+                                        button.textContent = '播放';
+                                        button.onclick = function() {
+                                            playSong(song.id, song.title, song.artist);
+                                        };
+                                        
+                                        card.appendChild(coverContainer);
+                                        card.appendChild(titleElement);
+                                        card.appendChild(infoElement);
+                                        card.appendChild(button);
+                                        
                                         songsCard.appendChild(card);
                                     });
                                 } else {
@@ -1029,63 +1146,184 @@
             }
         }
 
+        // 初始化ffmpegwasm
+        const ffmpeg = FFmpeg.createFFmpeg({
+            log: true,
+            corePath: 'http://localhost:4040/ffmpeg-core/ffmpeg-core.js'
+        });
+        const fetchFile = FFmpeg.fetchFile;
+
         // 播放歌曲
         function playSong(id, title, artist) {
             currentSong = { id, title, artist };
             document.getElementById('currentSongTitle').textContent = title;
-            document.getElementById('currentSongArtist').textContent = artist;
+            document.getElementById('currentSongArtist').textContent = artist + ' (加载中...)';
             document.getElementById('player').style.display = 'block';
 
             const audioPlayer = document.getElementById('audioPlayer');
-            const playButton = document.querySelector('.player-controls .btn:first-child');
-            audioPlayer.src = `/rest/stream?${authParams}&id=${id}`;
-            console.log('设置音频源:', audioPlayer.src);
+            let retryCount = 0;
+            const maxRetries = 2;
             
-            // 添加错误处理
-            audioPlayer.addEventListener('error', function(e) {
-                console.error('音频播放错误:', e);
-                console.error('错误代码:', e.target.error.code);
-                console.error('错误消息:', e.target.error.message);
-            });
+            // 重置音频元素
+            audioPlayer.pause();
+            audioPlayer.currentTime = 0;
             
-            // 等待音频加载完成后播放
-            audioPlayer.addEventListener('canplay', function() {
-                console.log('音频可以播放了');
-                audioPlayer.play().then(function() {
-                    console.log('播放成功');
-                    playButton.textContent = '暂停';
-                }).catch(function(error) {
-                    console.error('播放失败:', error);
-                });
-            });
+            // 获取转码方式设置
+            const transcodeMode = localStorage.getItem('transcodeMode') || 'server';
+            console.log('转码方式:', transcodeMode);
+            // 显示转码方式信息
+            console.log('当前使用的转码方式:', transcodeMode === 'client' ? '浏览器端转码 (带raw=1参数)' : '服务器端转码 (不带raw=1参数)');
             
-            // 加载元数据
-            audioPlayer.addEventListener('loadedmetadata', function() {
-                console.log('音频元数据加载完成:', audioPlayer.duration);
-            });
-        }
-
-        // 播放/暂停
-        function playPause() {
-            const audioPlayer = document.getElementById('audioPlayer');
-            const playButton = document.querySelector('.player-controls .btn:first-child');
-            if (audioPlayer.paused) {
-                audioPlayer.play();
-                playButton.textContent = '暂停';
+            if (transcodeMode === 'client') {
+                // 浏览器端转码
+                clientSideTranscode(id, title, artist, audioPlayer);
             } else {
-                audioPlayer.pause();
-                playButton.textContent = '播放';
+                // 服务器端转码
+                serverSideTranscode(id, title, artist, audioPlayer);
+            }
+            
+            // 服务器端转码播放
+            function serverSideTranscode(id, title, artist, audioPlayer) {
+                // 播放函数
+                function startPlayback() {
+                    // 设置音频源
+                    audioPlayer.src = `/rest/stream?${authParams}&id=${id}&t=${Date.now()}`; // 添加时间戳避免缓存
+                    console.log('设置音频源:', audioPlayer.src);
+                    
+                    // 等待音频数据加载，然后播放
+                    audioPlayer.addEventListener('canplay', playWhenReady);
+                    
+                    // 监听加载错误
+                    audioPlayer.addEventListener('error', handleAudioError);
+                }
+                
+                // 播放准备就绪处理
+                function playWhenReady() {
+                    audioPlayer.removeEventListener('canplay', playWhenReady);
+                    console.log('音频可以播放了');
+                    document.getElementById('currentSongArtist').textContent = artist;
+                    audioPlayer.play().then(function() {
+                        console.log('播放成功');
+                    }).catch(function(error) {
+                        console.error('播放失败:', error);
+                        console.log('自动播放失败，请手动点击播放按钮');
+                    });
+                }
+                
+                // 错误处理函数
+                function handleAudioError(e) {
+                    audioPlayer.removeEventListener('error', handleAudioError);
+                    console.error('音频加载错误:', e);
+                    console.error('错误代码:', e.target.error.code);
+                    console.error('错误消息:', e.target.error.message);
+                    
+                    if (retryCount < maxRetries) {
+                        retryCount++;
+                        console.log(`尝试重新加载 (${retryCount}/${maxRetries})...`);
+                        document.getElementById('currentSongArtist').textContent = artist + ` (加载失败，重试 ${retryCount}/${maxRetries}...)`;
+                        
+                        // 延迟后重试
+                        setTimeout(function() {
+                            startPlayback();
+                        }, 1000);
+                    } else {
+                        document.getElementById('currentSongArtist').textContent = artist + ' (加载失败)';
+                        console.log('已达到最大重试次数，停止尝试');
+                    }
+                }
+                
+                // 开始播放
+                startPlayback();
+            }
+            
+            // 浏览器端转码播放
+            async function clientSideTranscode(id, title, artist, audioPlayer) {
+                try {
+                    // 加载ffmpegwasm
+                    if (!ffmpeg.isLoaded()) {
+                        console.log('正在加载ffmpegwasm...');
+                        document.getElementById('currentSongArtist').textContent = artist + ' (加载ffmpeg...)';
+                        await ffmpeg.load();
+                        console.log('ffmpegwasm加载完成');
+                    }
+                    
+                    // 获取原始音频文件
+                    console.log('正在获取音频文件...');
+                    document.getElementById('currentSongArtist').textContent = artist + ' (获取音频...)';
+                    
+                    // 先获取歌曲信息，包括格式
+                    const songInfoResponse = await fetch(`/rest/getSong?${authParams}&id=${id}`);
+                    const songInfoData = await songInfoResponse.json();
+                    const songFormat = songInfoData['subsonic-response'].song.format;
+                    console.log('歌曲格式:', songFormat);
+                    
+                    // 下载原始音频文件
+                    const inputFilename = `input.${songFormat.toLowerCase()}`;
+                    const outputFilename = 'output.mp3';
+                    
+                    // 写入文件到ffmpeg虚拟文件系统
+                    console.log('正在写入文件到ffmpeg虚拟文件系统...');
+                    document.getElementById('currentSongArtist').textContent = artist + ' (转码中...)';
+                    
+                    // 使用fetchFile获取文件
+                    const streamUrl = `/rest/stream?${authParams}&id=${id}&raw=1`;
+                    console.log('获取原始音频文件URL:', streamUrl);
+                    const response = await fetch(streamUrl);
+                    console.log('原始音频文件获取状态:', response.status);
+                    const inputBlob = await response.blob();
+                    console.log('原始音频文件大小:', inputBlob.size, 'bytes');
+                    ffmpeg.FS('writeFile', inputFilename, await fetchFile(inputBlob));
+                    console.log('原始音频文件已写入ffmpeg虚拟文件系统');
+                    
+                    // 执行转码
+                    console.log('正在执行转码...');
+                    await ffmpeg.run('-i', inputFilename, '-acodec', 'libmp3lame', '-b:a', '128k', outputFilename);
+                    
+                    // 读取转码后的文件
+                    console.log('正在读取转码后的文件...');
+                    const data = ffmpeg.FS('readFile', outputFilename);
+                    
+                    // 创建Blob对象
+                    const transcodedBlob = new Blob([data.buffer], { type: 'audio/mpeg' });
+                    const url = URL.createObjectURL(transcodedBlob);
+                    
+                    // 设置音频源
+                    console.log('设置音频源:', url);
+                    audioPlayer.src = url;
+                    
+                    // 等待音频数据加载，然后播放
+                    audioPlayer.addEventListener('canplay', function playWhenReady() {
+                        audioPlayer.removeEventListener('canplay', playWhenReady);
+                        console.log('音频可以播放了');
+                        document.getElementById('currentSongArtist').textContent = artist;
+                        audioPlayer.play().then(function() {
+                            console.log('播放成功');
+                        }).catch(function(error) {
+                            console.error('播放失败:', error);
+                            console.log('自动播放失败，请手动点击播放按钮');
+                        });
+                    });
+                    
+                    // 监听加载错误
+                    audioPlayer.addEventListener('error', function handleError(e) {
+                        audioPlayer.removeEventListener('error', handleError);
+                        console.error('音频加载错误:', e);
+                        console.error('错误代码:', e.target.error.code);
+                        console.error('错误消息:', e.target.error.message);
+                        document.getElementById('currentSongArtist').textContent = artist + ' (加载失败)';
+                    });
+                    
+                } catch (error) {
+                    console.error('浏览器端转码失败:', error);
+                    document.getElementById('currentSongArtist').textContent = artist + ' (转码失败)';
+                    //  fallback到服务器端转码
+                    console.log('fallback到服务器端转码');
+                    serverSideTranscode(id, title, artist, audioPlayer);
+                }
             }
         }
 
-        // 停止
-        function stop() {
-            const audioPlayer = document.getElementById('audioPlayer');
-            const playButton = document.querySelector('.player-controls .btn:first-child');
-            audioPlayer.pause();
-            audioPlayer.currentTime = 0;
-            playButton.textContent = '播放';
-        }
+
 
         // 切换视图
         function switchView(view) {
