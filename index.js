@@ -459,7 +459,7 @@ app.get('/rest/getLyricsBySongId', authenticate, (req, res) => {
 app.get('/rest/stream', authenticate, async (req, res) => {
   const { id } = req.query;
   
-  db.get(`SELECT file_path FROM songs WHERE id = ?`, [id], async (err, song) => {
+  db.get(`SELECT file_path, format FROM songs WHERE id = ?`, [id], async (err, song) => {
     if (err) {
       res.status(500).json(createResponse({ error: { code: 0, message: err.message } }, 'failed'));
       return;
@@ -471,6 +471,10 @@ app.get('/rest/stream', authenticate, async (req, res) => {
     }
     
     const filePath = song.file_path;
+    const format = song.format;
+    
+    // 需要转码的格式
+    const needTranscode = ['FLAC', 'WAV', 'OGG'];
     
     // 处理WebDAV路径
     if (filePath.startsWith('webdav://')) {
@@ -499,8 +503,34 @@ app.get('/rest/stream', authenticate, async (req, res) => {
         res.setHeader('Content-Type', 'audio/mpeg');
         res.setHeader('Content-Disposition', 'inline');
         
-        // 流式传输
-        stream.pipe(res);
+        // 检查是否需要转码
+        if (needTranscode.includes(format)) {
+          // 使用ffmpeg进行转码
+          const { spawn } = require('child_process');
+          const ffmpeg = spawn('ffmpeg', [
+            '-i', 'pipe:0',
+            '-f', 'mp3',
+            '-b:a', '320k',
+            'pipe:1'
+          ]);
+          
+          // 处理错误
+          ffmpeg.stderr.on('data', (data) => {
+            console.error('ffmpeg error:', data.toString());
+          });
+          
+          ffmpeg.on('error', (error) => {
+            console.error('ffmpeg spawn error:', error);
+            res.status(500).json(createResponse({ error: { code: 0, message: 'Transcoding failed' } }, 'failed'));
+          });
+          
+          // 流式传输
+          stream.pipe(ffmpeg.stdin);
+          ffmpeg.stdout.pipe(res);
+        } else {
+          // 直接流式传输
+          stream.pipe(res);
+        }
       } catch (error) {
         res.status(500).json(createResponse({ error: { code: 0, message: error.message } }, 'failed'));
       }
@@ -516,15 +546,44 @@ app.get('/rest/stream', authenticate, async (req, res) => {
         return;
       }
       
-      // 流式传输文件
-      const stat = fs.statSync(localPath);
-      res.writeHead(200, {
-        'Content-Type': 'audio/mpeg',
-        'Content-Length': stat.size
-      });
-      
-      const readStream = fs.createReadStream(localPath);
-      readStream.pipe(res);
+      // 检查是否需要转码
+      if (needTranscode.includes(format)) {
+        // 使用ffmpeg进行转码
+        const { spawn } = require('child_process');
+        const ffmpeg = spawn('ffmpeg', [
+          '-i', localPath,
+          '-f', 'mp3',
+          '-b:a', '320k',
+          'pipe:1'
+        ]);
+        
+        // 设置响应头
+        res.setHeader('Content-Type', 'audio/mpeg');
+        res.setHeader('Content-Disposition', 'inline');
+        
+        // 处理错误
+        ffmpeg.stderr.on('data', (data) => {
+          console.error('ffmpeg error:', data.toString());
+        });
+        
+        ffmpeg.on('error', (error) => {
+          console.error('ffmpeg spawn error:', error);
+          res.status(500).json(createResponse({ error: { code: 0, message: 'Transcoding failed' } }, 'failed'));
+        });
+        
+        // 流式传输
+        ffmpeg.stdout.pipe(res);
+      } else {
+        // 直接流式传输文件
+        const stat = fs.statSync(localPath);
+        res.writeHead(200, {
+          'Content-Type': 'audio/mpeg',
+          'Content-Length': stat.size
+        });
+        
+        const readStream = fs.createReadStream(localPath);
+        readStream.pipe(res);
+      }
     }
   });
 });
