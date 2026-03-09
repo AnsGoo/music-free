@@ -292,12 +292,31 @@ async function scanWebdavDirectories() {
     
     console.log(`Found ${configs.length} WebDAV configurations`);
     
-    for (const config of configs) {
+    // 并发处理多个WebDAV配置
+    const configPromises = configs.map(async (config) => {
       console.log(`Scanning WebDAV directory: ${config.url}`);
-      const files = await scanWebdavDirectory(config, '/');
-      console.log(`Found ${files.length} files in ${config.url}`);
-      webdavFiles.push(...files);
-    }
+      try {
+        // 设置扫描超时
+        const timeoutPromise = new Promise((_, reject) => {
+          setTimeout(() => reject(new Error('WebDAV scanning timeout')), 60000); // 60秒超时
+        });
+        
+        const files = await Promise.race([
+          scanWebdavDirectory(config, '/'),
+          timeoutPromise
+        ]);
+        
+        console.log(`Found ${files.length} files in ${config.url}`);
+        return files;
+      } catch (error) {
+        console.error(`Error scanning WebDAV config ${config.url}:`, error);
+        return [];
+      }
+    });
+    
+    // 等待所有配置扫描完成
+    const results = await Promise.all(configPromises);
+    results.forEach(files => webdavFiles.push(...files));
     
     console.log(`Total WebDAV files found: ${webdavFiles.length}`);
     return webdavFiles;
@@ -308,25 +327,55 @@ async function scanWebdavDirectories() {
 }
 
 // 递归扫描WebDAV目录
-async function scanWebdavDirectory(config, remotePath) {
+async function scanWebdavDirectory(config, remotePath, maxDepth = 3, currentDepth = 0) {
   try {
-    console.log(`Scanning WebDAV directory: ${remotePath}`);
+    // 检查深度限制
+    if (currentDepth >= maxDepth) {
+      console.log(`Reached maximum depth ${maxDepth} at ${remotePath}`);
+      return [];
+    }
+    
+    console.log(`Scanning WebDAV directory: ${remotePath} (depth: ${currentDepth})`);
     const files = [];
-    const remoteFiles = await webdav.getWebdavFiles(config, remotePath);
+    
+    // 设置单个目录扫描超时
+    const timeoutPromise = new Promise((_, reject) => {
+      setTimeout(() => reject(new Error(`Directory scanning timeout for ${remotePath}`)), 30000); // 30秒超时
+    });
+    
+    const remoteFiles = await Promise.race([
+      webdav.getWebdavFiles(config, remotePath, maxDepth, currentDepth),
+      timeoutPromise
+    ]);
     
     console.log(`Found ${remoteFiles.length} items in ${remotePath}`);
     
-    for (const item of remoteFiles) {
+    // 并发处理子目录和文件
+    const itemPromises = remoteFiles.map(async (item) => {
       if (item.type === 'directory') {
         console.log(`Found directory: ${item.filename}`);
         // 递归扫描子目录
-        const subFiles = await scanWebdavDirectory(config, item.path);
-        files.push(...subFiles);
+        try {
+          const subFiles = await scanWebdavDirectory(config, item.path, maxDepth, currentDepth + 1);
+          return subFiles;
+        } catch (error) {
+          console.error(`Error scanning subdirectory ${item.path}:`, error);
+          return [];
+        }
       } else if (item.type === 'file' && /\.(mp3|wav|flac|ogg)$/i.test(item.filename)) {
         // 只处理音乐文件
         console.log(`Found music file: ${item.filename}`);
-        files.push({ config, path: item.path, filename: item.basename });
+        return [{ config, path: item.path, filename: item.basename }];
       }
+      return [];
+    });
+    
+    // 限制并发数，避免过多同时请求
+    const concurrencyLimit = 5;
+    for (let i = 0; i < itemPromises.length; i += concurrencyLimit) {
+      const batch = itemPromises.slice(i, i + concurrencyLimit);
+      const batchResults = await Promise.all(batch);
+      batchResults.forEach(subFiles => files.push(...subFiles));
     }
     
     console.log(`Scanned ${remotePath}, found ${files.length} music files`);
@@ -337,14 +386,14 @@ async function scanWebdavDirectory(config, remotePath) {
   }
 }
 
-// 处理WebDAV音乐文件
-async function processWebdavFile(webdavFile) {
+// 处理WebDAV音乐文件（带重试机制）
+async function processWebdavFile(webdavFile, retryCount = 0, maxRetries = 3) {
   let stream = null;
   try {
     const { config, path: remotePath, filename } = webdavFile;
     const webdavPath = `webdav://${config.id}${remotePath}`;
     
-    console.log(`Processing WebDAV file: ${filename} at ${remotePath}`);
+    console.log(`Processing WebDAV file: ${filename} at ${remotePath} (attempt ${retryCount + 1}/${maxRetries})`);
     
     // 检查是否为重复文件
     if (duplicateFiles.has(webdavPath)) {
@@ -355,9 +404,31 @@ async function processWebdavFile(webdavFile) {
     // 检查文件是否已处理
     if (!processedFiles.has(webdavPath)) {
       console.log(`File not processed yet, processing now: ${webdavPath}`);
-      // 获取文件流
-      stream = await webdav.getWebdavFileStream(config, remotePath);
-      console.log(`Got file stream for ${filename}`);
+      
+      // 带重试机制获取文件流
+      let streamAcquired = false;
+      let streamError = null;
+      
+      for (let i = 0; i < 3; i++) {
+        try {
+          // 获取文件流
+          stream = await webdav.getWebdavFileStream(config, remotePath);
+          console.log(`Got file stream for ${filename}`);
+          streamAcquired = true;
+          break;
+        } catch (error) {
+          streamError = error;
+          console.error(`Error getting file stream (attempt ${i + 1}/3):`, error);
+          if (i < 2) {
+            console.log('Retrying...');
+            await new Promise(resolve => setTimeout(resolve, 1000)); // 1秒后重试
+          }
+        }
+      }
+      
+      if (!streamAcquired) {
+        throw new Error(`Failed to get file stream after 3 attempts: ${streamError?.message}`);
+      }
       
       // 直接从流中提取元数据
       const metadata = await parseMusicMetadataFromStream(stream);
@@ -422,15 +493,15 @@ async function processWebdavFile(webdavFile) {
               }
             } else {
               db.run(`INSERT INTO albums (title, artist_id, cover_art) VALUES (?, ?, ?)`, [metadata.album, artistId, metadata.coverArt], function(err) {
-            if (err) {
-              console.error('Error creating album:', err);
-              return;
-            }
-            // 直接使用lastID，因为我们已经在db.js中修改了run函数，确保this.lastID被正确设置
-            albumId = this.lastID || 1; // 提供默认值以防万一
-            console.log(`Created new album: ${metadata.album} (ID: ${albumId})`);
-            processSong();
-          });
+                if (err) {
+                  console.error('Error creating album:', err);
+                  return;
+                }
+                // 直接使用lastID，因为我们已经在db.js中修改了run函数，确保this.lastID被正确设置
+                albumId = this.lastID || 1; // 提供默认值以防万一
+                console.log(`Created new album: ${metadata.album} (ID: ${albumId})`);
+                processSong();
+              });
             }
             
             function processSong() {
@@ -458,6 +529,15 @@ async function processWebdavFile(webdavFile) {
     }
   } catch (error) {
     console.error('Error processing WebDAV file:', error);
+    
+    // 重试机制
+    if (retryCount < maxRetries) {
+      console.log(`Retrying processing WebDAV file (${retryCount + 2}/${maxRetries})...`);
+      await new Promise(resolve => setTimeout(resolve, 2000)); // 2秒后重试
+      return processWebdavFile(webdavFile, retryCount + 1, maxRetries);
+    } else {
+      console.error(`Failed to process WebDAV file after ${maxRetries} attempts:`, error);
+    }
   } finally {
     // 确保流被正确关闭
     if (stream) {
@@ -581,13 +661,35 @@ async function syncMusicFiles() {
     }
     
     // 检查新增的WebDAV文件
-    for (const file of webdavFiles) {
-      try {
-        await processWebdavFile(file);
-        scanStatus.processedFiles++;
-      } catch (error) {
-        console.error('Error processing WebDAV file:', error);
-        scanStatus.failedFiles++;
+    if (webdavFiles.length > 0) {
+      console.log(`Processing ${webdavFiles.length} WebDAV files with concurrency control`);
+      
+      // 并发处理WebDAV文件，限制并发数
+      const concurrencyLimit = 3;
+      for (let i = 0; i < webdavFiles.length; i += concurrencyLimit) {
+        const batch = webdavFiles.slice(i, i + concurrencyLimit);
+        const batchPromises = batch.map(async (file) => {
+          try {
+            await processWebdavFile(file);
+            return { success: true };
+          } catch (error) {
+            console.error('Error processing WebDAV file:', error);
+            return { success: false };
+          }
+        });
+        
+        const batchResults = await Promise.all(batchPromises);
+        batchResults.forEach(result => {
+          if (result.success) {
+            scanStatus.processedFiles++;
+          } else {
+            scanStatus.failedFiles++;
+          }
+        });
+        
+        // 每处理完一个批次，更新扫描状态
+        console.log(`Processed batch ${Math.floor(i / concurrencyLimit) + 1}/${Math.ceil(webdavFiles.length / concurrencyLimit)}`);
+        console.log(`Current status: Processed ${scanStatus.processedFiles}, Failed: ${scanStatus.failedFiles}`);
       }
     }
     

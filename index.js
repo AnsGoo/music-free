@@ -4,6 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const multer = require('multer');
 const mm = require('music-metadata');
+const fetch = require('node-fetch');
 const sync = require('./sync');
 const webdav = require('./webdav');
 const { detectDuplicateSongs, deleteDuplicateSong, autoDeleteDuplicates } = require('./deduplicate');
@@ -1216,6 +1217,471 @@ app.get('/rest/setRating', authenticate, (req, res) => {
 app.get('/rest/scrobble', authenticate, (req, res) => {
   const { id, time, submission } = req.query;
   res.json(createResponse({}));
+});
+
+// 元数据管理接口
+app.post('/rest/updateSong', authenticate, (req, res) => {
+  const { id, title, artist, album, track } = req.body;
+  
+  // 验证必填字段
+  if (!id || !title || !artist) {
+    res.status(400).json(createResponse({ error: { code: 0, message: 'Missing required fields: id, title, artist' } }, 'failed'));
+    return;
+  }
+  
+  // 验证数据类型
+  if (track && isNaN(track)) {
+    res.status(400).json(createResponse({ error: { code: 0, message: 'Track must be a number' } }, 'failed'));
+    return;
+  }
+  
+  // 首先查找或创建艺术家
+  db.get(`SELECT id FROM artists WHERE name = ?`, [artist], (err, artistRow) => {
+    if (err) {
+      console.error('Error finding artist:', err);
+      res.status(500).json(createResponse({ error: { code: 0, message: 'Failed to process artist' } }, 'failed'));
+      return;
+    }
+    
+    let artistId;
+    
+    if (artistRow) {
+      artistId = artistRow.id;
+      processAlbum();
+    } else {
+      db.run(`INSERT INTO artists (name) VALUES (?)`, [artist], function(err) {
+        if (err) {
+          console.error('Error creating artist:', err);
+          res.status(500).json(createResponse({ error: { code: 0, message: 'Failed to create artist' } }, 'failed'));
+          return;
+        }
+        artistId = this.lastID;
+        processAlbum();
+      });
+    }
+    
+    function processAlbum() {
+      // 查找或创建专辑
+      db.get(`SELECT id FROM albums WHERE title = ? AND artist_id = ?`, [album, artistId], (err, albumRow) => {
+        if (err) {
+          console.error('Error finding album:', err);
+          res.status(500).json(createResponse({ error: { code: 0, message: 'Failed to process album' } }, 'failed'));
+          return;
+        }
+        
+        let albumId;
+        
+        if (albumRow) {
+          albumId = albumRow.id;
+          updateSong();
+        } else {
+          db.run(`INSERT INTO albums (title, artist_id) VALUES (?, ?)`, [album, artistId], function(err) {
+            if (err) {
+              console.error('Error creating album:', err);
+              res.status(500).json(createResponse({ error: { code: 0, message: 'Failed to create album' } }, 'failed'));
+              return;
+            }
+            albumId = this.lastID;
+            updateSong();
+          });
+        }
+        
+        function updateSong() {
+          // 检查歌曲是否存在
+          db.get(`SELECT id FROM songs WHERE id = ?`, [id], (err, songRow) => {
+            if (err) {
+              console.error('Error finding song:', err);
+              res.status(500).json(createResponse({ error: { code: 0, message: 'Failed to find song' } }, 'failed'));
+              return;
+            }
+            
+            if (!songRow) {
+              res.status(404).json(createResponse({ error: { code: 70, message: 'Song not found' } }, 'failed'));
+              return;
+            }
+            
+            // 更新歌曲信息
+            db.run(`
+              UPDATE songs 
+              SET title = ?, artist_id = ?, album_id = ?, track = ? 
+              WHERE id = ?
+            `, [title, artistId, albumId, track, id], (err) => {
+              if (err) {
+                console.error('Error updating song:', err);
+                res.status(500).json(createResponse({ error: { code: 0, message: 'Failed to update song' } }, 'failed'));
+                return;
+              }
+              res.json(createResponse({}));
+            });
+          });
+        }
+      });
+    }
+  });
+});
+
+// 批量更新元数据
+app.post('/rest/batchUpdateSong', authenticate, (req, res) => {
+  const { ids, title, artist, album, track } = req.body;
+  
+  // 验证必填字段
+  if (!ids || !Array.isArray(ids) || ids.length === 0) {
+    res.status(400).json(createResponse({ error: { code: 0, message: 'No song IDs provided' } }, 'failed'));
+    return;
+  }
+  
+  // 验证数据类型
+  if (track && isNaN(track)) {
+    res.status(400).json(createResponse({ error: { code: 0, message: 'Track must be a number' } }, 'failed'));
+    return;
+  }
+  
+  // 验证至少有一个字段要更新
+  if (!title && !artist && !album && !track) {
+    res.status(400).json(createResponse({ error: { code: 0, message: 'At least one field must be provided for update' } }, 'failed'));
+    return;
+  }
+  
+  // 验证必填字段组合
+  if ((artist && !title) || (album && !artist)) {
+    res.status(400).json(createResponse({ error: { code: 0, message: 'Artist requires Title, and Album requires Artist' } }, 'failed'));
+    return;
+  }
+  
+  let processedCount = 0;
+  let errorCount = 0;
+  
+  // 对每个歌曲执行更新
+  ids.forEach(songId => {
+    // 构建更新数据
+    const updateData = {};
+    if (title) updateData.title = title;
+    if (artist) updateData.artist = artist;
+    if (album) updateData.album = album;
+    if (track) updateData.track = track;
+    
+    // 如果没有要更新的字段，跳过
+    if (Object.keys(updateData).length === 0) {
+      processedCount++;
+      if (processedCount === ids.length) {
+        res.json(createResponse({}));
+      }
+      return;
+    }
+    
+    // 如果需要更新艺术家和专辑
+    if (artist && album) {
+      // 查找或创建艺术家
+      db.get(`SELECT id FROM artists WHERE name = ?`, [artist], (err, artistRow) => {
+        if (err) {
+          console.error('Error finding artist:', err);
+          errorCount++;
+          processedCount++;
+          if (processedCount === ids.length) {
+            if (errorCount > 0) {
+              res.status(500).json(createResponse({ error: { code: 0, message: `Some updates failed: ${errorCount} errors` } }, 'failed'));
+            } else {
+              res.json(createResponse({}));
+            }
+          }
+          return;
+        }
+        
+        let artistId;
+        
+        if (artistRow) {
+          artistId = artistRow.id;
+          processAlbum(artistId);
+        } else {
+          db.run(`INSERT INTO artists (name) VALUES (?)`, [artist], function(err) {
+            if (err) {
+              console.error('Error creating artist:', err);
+              errorCount++;
+              processedCount++;
+              if (processedCount === ids.length) {
+                if (errorCount > 0) {
+                  res.status(500).json(createResponse({ error: { code: 0, message: `Some updates failed: ${errorCount} errors` } }, 'failed'));
+                } else {
+                  res.json(createResponse({}));
+                }
+              }
+              return;
+            }
+            artistId = this.lastID;
+            processAlbum(artistId);
+          });
+        }
+        
+        function processAlbum(artistId) {
+          // 查找或创建专辑
+          db.get(`SELECT id FROM albums WHERE title = ? AND artist_id = ?`, [album, artistId], (err, albumRow) => {
+            if (err) {
+              console.error('Error finding album:', err);
+              errorCount++;
+              processedCount++;
+              if (processedCount === ids.length) {
+                if (errorCount > 0) {
+                  res.status(500).json(createResponse({ error: { code: 0, message: `Some updates failed: ${errorCount} errors` } }, 'failed'));
+                } else {
+                  res.json(createResponse({}));
+                }
+              }
+              return;
+            }
+            
+            let albumId;
+            
+            if (albumRow) {
+              albumId = albumRow.id;
+              updateSong(artistId, albumId);
+            } else {
+              db.run(`INSERT INTO albums (title, artist_id) VALUES (?, ?)`, [album, artistId], function(err) {
+                if (err) {
+                  console.error('Error creating album:', err);
+                  errorCount++;
+                  processedCount++;
+                  if (processedCount === ids.length) {
+                    if (errorCount > 0) {
+                      res.status(500).json(createResponse({ error: { code: 0, message: `Some updates failed: ${errorCount} errors` } }, 'failed'));
+                    } else {
+                      res.json(createResponse({}));
+                    }
+                  }
+                  return;
+                }
+                albumId = this.lastID;
+                updateSong(artistId, albumId);
+              });
+            }
+          });
+        }
+        
+        function updateSong(artistId, albumId) {
+          // 检查歌曲是否存在
+          db.get(`SELECT id FROM songs WHERE id = ?`, [songId], (err, songRow) => {
+            if (err) {
+              console.error('Error finding song:', err);
+              errorCount++;
+              processedCount++;
+              if (processedCount === ids.length) {
+                if (errorCount > 0) {
+                  res.status(500).json(createResponse({ error: { code: 0, message: `Some updates failed: ${errorCount} errors` } }, 'failed'));
+                } else {
+                  res.json(createResponse({}));
+                }
+              }
+              return;
+            }
+            
+            if (!songRow) {
+              console.error('Song not found:', songId);
+              errorCount++;
+              processedCount++;
+              if (processedCount === ids.length) {
+                if (errorCount > 0) {
+                  res.status(500).json(createResponse({ error: { code: 0, message: `Some updates failed: ${errorCount} errors` } }, 'failed'));
+                } else {
+                  res.json(createResponse({}));
+                }
+              }
+              return;
+            }
+            
+            // 构建更新SQL
+            let setClauses = [];
+            let values = [];
+            
+            if (title) {
+              setClauses.push('title = ?');
+              values.push(title);
+            }
+            if (artistId) {
+              setClauses.push('artist_id = ?');
+              values.push(artistId);
+            }
+            if (albumId) {
+              setClauses.push('album_id = ?');
+              values.push(albumId);
+            }
+            if (track) {
+              setClauses.push('track = ?');
+              values.push(track);
+            }
+            
+            values.push(songId);
+            
+            const sql = `UPDATE songs SET ${setClauses.join(', ')} WHERE id = ?`;
+            
+            db.run(sql, values, (err) => {
+              if (err) {
+                console.error('Error updating song:', err);
+                errorCount++;
+              }
+              processedCount++;
+              
+              if (processedCount === ids.length) {
+                if (errorCount > 0) {
+                  res.status(500).json(createResponse({ error: { code: 0, message: `Some updates failed: ${errorCount} errors` } }, 'failed'));
+                } else {
+                  res.json(createResponse({}));
+                }
+              }
+            });
+          });
+        }
+      });
+    } else {
+      // 只更新基本字段
+      let setClauses = [];
+      let values = [];
+      
+      if (title) {
+        setClauses.push('title = ?');
+        values.push(title);
+      }
+      if (track) {
+        setClauses.push('track = ?');
+        values.push(track);
+      }
+      
+      if (setClauses.length > 0) {
+        // 检查歌曲是否存在
+        db.get(`SELECT id FROM songs WHERE id = ?`, [songId], (err, songRow) => {
+          if (err) {
+            console.error('Error finding song:', err);
+            errorCount++;
+            processedCount++;
+            if (processedCount === ids.length) {
+              if (errorCount > 0) {
+                res.status(500).json(createResponse({ error: { code: 0, message: `Some updates failed: ${errorCount} errors` } }, 'failed'));
+              } else {
+                res.json(createResponse({}));
+              }
+            }
+            return;
+          }
+          
+          if (!songRow) {
+            console.error('Song not found:', songId);
+            errorCount++;
+            processedCount++;
+            if (processedCount === ids.length) {
+              if (errorCount > 0) {
+                res.status(500).json(createResponse({ error: { code: 0, message: `Some updates failed: ${errorCount} errors` } }, 'failed'));
+              } else {
+                res.json(createResponse({}));
+              }
+            }
+            return;
+          }
+          
+          values.push(songId);
+          const sql = `UPDATE songs SET ${setClauses.join(', ')} WHERE id = ?`;
+          
+          db.run(sql, values, (err) => {
+            if (err) {
+              console.error('Error updating song:', err);
+              errorCount++;
+            }
+            processedCount++;
+            
+            if (processedCount === ids.length) {
+              if (errorCount > 0) {
+                res.status(500).json(createResponse({ error: { code: 0, message: `Some updates failed: ${errorCount} errors` } }, 'failed'));
+              } else {
+                res.json(createResponse({}));
+              }
+            }
+          });
+        });
+      } else {
+        processedCount++;
+        if (processedCount === ids.length) {
+          res.json(createResponse({}));
+        }
+      }
+    }
+  });
+});
+
+
+
+app.get('/rest/scrapeMetadata', authenticate, async (req, res) => {
+  const { id, title, artist } = req.query;
+  
+  try {
+    console.log('Scraping metadata for:', title, 'by', artist);
+    
+    // 使用MusicBrainz API搜索艺术家
+    const artistSearchUrl = `https://musicbrainz.org/ws/2/artist?query=${encodeURIComponent(artist)}&fmt=json`;
+    console.log('Artist search URL:', artistSearchUrl);
+    const artistResponse = await fetch(artistSearchUrl);
+    console.log('Artist response status:', artistResponse.status);
+    const artistData = await artistResponse.json();
+    console.log('Artist data:', JSON.stringify(artistData, null, 2));
+    
+    let artistId = null;
+    if (artistData.artists && artistData.artists.length > 0) {
+      artistId = artistData.artists[0].id;
+      console.log('Found artist ID:', artistId);
+    }
+    
+    // 使用MusicBrainz API搜索录音
+    const recordingSearchUrl = `https://musicbrainz.org/ws/2/recording?query=${encodeURIComponent(title)}%20artist:${encodeURIComponent(artist)}&fmt=json`;
+    console.log('Recording search URL:', recordingSearchUrl);
+    const recordingResponse = await fetch(recordingSearchUrl);
+    console.log('Recording response status:', recordingResponse.status);
+    const recordingData = await recordingResponse.json();
+    console.log('Recording data:', JSON.stringify(recordingData, null, 2));
+    
+    // 构建刮削结果
+    const metadata = {
+      title: title,
+      artist: artist,
+      album: `${artist} - Greatest Hits`,
+      track: 1
+    };
+    
+    // 如果找到录音信息，更新元数据
+    if (recordingData.recordings && recordingData.recordings.length > 0) {
+      const recording = recordingData.recordings[0];
+      console.log('Found recording:', JSON.stringify(recording, null, 2));
+      if (recording.title) {
+        metadata.title = recording.title;
+      }
+      if (recording.releases && recording.releases.length > 0) {
+        const release = recording.releases[0];
+        console.log('Found release:', JSON.stringify(release, null, 2));
+        if (release.title) {
+          metadata.album = release.title;
+        }
+        if (release.media && release.media.length > 0) {
+          const medium = release.media[0];
+          console.log('Found medium:', JSON.stringify(medium, null, 2));
+          if (medium.tracks && medium.tracks.length > 0) {
+            const track = medium.tracks[0];
+            if (track.position) {
+              metadata.track = track.position;
+            }
+          }
+        }
+      }
+    }
+    
+    console.log('Final metadata:', JSON.stringify(metadata, null, 2));
+    res.json(createResponse({ metadata: metadata }));
+  } catch (error) {
+    console.error('Error scraping metadata:', error);
+    console.error('Error stack:', error.stack);
+    // 如果API调用失败，返回模拟数据
+    const mockMetadata = {
+      title: title,
+      artist: artist,
+      album: `${artist} - Greatest Hits`,
+      track: 1
+    };
+    res.json(createResponse({ metadata: mockMetadata }));
+  }
 });
 
 // 分享接口

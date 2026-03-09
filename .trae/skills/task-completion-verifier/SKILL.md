@@ -25,7 +25,7 @@ This skill ensures that every requirement or bug fix is completed following the 
    - Push changes to the remote repository
 
 4. **Issue Update**
-   - Update the issue with completion details
+   - **Add a new comment** to the issue with completion details (do not update existing comments to preserve historical communication)
    - Include:
      - What was implemented
      - How it was tested

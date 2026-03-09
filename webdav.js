@@ -76,8 +76,14 @@ function createWebdavClient(config) {
 }
 
 // 获取WebDAV文件列表
-async function getWebdavFiles(config, remotePath = '/') {
+async function getWebdavFiles(config, remotePath = '/', maxDepth = 3, currentDepth = 0) {
   try {
+    // 检查深度限制
+    if (currentDepth >= maxDepth) {
+      console.log(`Reached maximum depth ${maxDepth} at ${remotePath}`);
+      return [];
+    }
+    
     const client = createWebdavClient(config);
     const remoteFiles = await client.getDirectoryContents(remotePath);
     
@@ -85,7 +91,8 @@ async function getWebdavFiles(config, remotePath = '/') {
       type: item.type,
       filename: item.filename,
       basename: path.basename(item.filename),
-      path: item.filename
+      path: item.filename,
+      depth: currentDepth
     }));
   } catch (error) {
     console.error(`Error getting WebDAV files from ${config.url}:`, error);

@@ -352,6 +352,7 @@
                     <li><a href="#" onclick="showSection('sync')">同步</a></li>
                     <li><a href="#" onclick="showSection('webdav')">WebDAV</a></li>
                     <li><a href="#" onclick="showSection('deduplicate')">去重</a></li>
+                    <li><a href="#" onclick="showSection('metadata')">元数据</a></li>
                     <li><a href="#" onclick="showSection('settings')">设置</a></li>
                     <li><a href="#" onclick="logout()">退出</a></li>
                 </ul>
@@ -539,6 +540,58 @@
                 <div id="duplicatesList" style="margin-top: 20px;"></div>
             </div>
             
+            <!-- 元数据管理 -->
+            <div class="section" id="metadata" style="display: none;">
+                <h2>元数据管理</h2>
+                <div class="form-group">
+                    <h3>搜索歌曲</h3>
+                    <div class="search-bar">
+                        <input type="text" id="metadataSearch" placeholder="搜索歌曲...">
+                        <button onclick="searchMetadataSongs()">
+                            <span id="searchLoading" style="display: none;">搜索中...</span>
+                            <span id="searchText">搜索</span>
+                        </button>
+                    </div>
+                    <div style="margin: 10px 0;">
+                        <button class="btn" onclick="selectAllSongs()">全选</button>
+                        <button class="btn" onclick="deselectAllSongs()">取消全选</button>
+                        <button class="btn" onclick="batchEditMetadata()" style="margin-left: 10px;">批量编辑</button>
+                        <button class="btn" onclick="exportMetadata()" style="margin-left: 10px;">导出</button>
+                        <button class="btn" onclick="importMetadata()" style="margin-left: 10px;">导入</button>
+                    </div>
+                    <div id="metadataSongsList" style="margin-top: 20px; padding: 10px; background-color: #f8f9fa; border-radius: 6px;">
+                        <!-- 歌曲列表将通过JavaScript动态添加 -->
+                    </div>
+                </div>
+                <div class="form-group" style="margin-top: 30px;">
+                    <h3>编辑元数据</h3>
+                    <div id="metadataForm" style="display: none; padding: 20px; background-color: #f8f9fa; border-radius: 6px; border: 1px solid #e9ecef;">
+                        <input type="hidden" id="currentSongId">
+                        <div class="form-group">
+                            <label for="editTitle">标题</label>
+                            <input type="text" id="editTitle" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 3px;">
+                        </div>
+                        <div class="form-group">
+                            <label for="editArtist">艺术家</label>
+                            <input type="text" id="editArtist" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 3px;">
+                        </div>
+                        <div class="form-group">
+                            <label for="editAlbum">专辑</label>
+                            <input type="text" id="editAlbum" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 3px;">
+                        </div>
+                        <div class="form-group">
+                            <label for="editTrack">轨道</label>
+                            <input type="number" id="editTrack" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 3px;">
+                        </div>
+                        <div class="form-group" style="margin-top: 10px;">
+                            <button class="btn" onclick="saveMetadata()">保存元数据</button>
+                            <button class="btn" onclick="scrapeMetadata()" style="margin-left: 10px;">刮削元数据</button>
+                        </div>
+                        <div id="metadataResult" style="margin-top: 10px;"></div>
+                    </div>
+                </div>
+            </div>
+
             <!-- 设置 -->
             <div class="section" id="settings" style="display: none;">
                 <h2>设置</h2>
@@ -647,6 +700,7 @@
             document.getElementById('sync').style.display = 'none';
             document.getElementById('webdav').style.display = 'none';
             document.getElementById('deduplicate').style.display = 'none';
+            document.getElementById('metadata').style.display = 'none';
             document.getElementById('settings').style.display = 'none';
 
             // 显示选中部分
@@ -663,6 +717,10 @@
                 loadWebdavConfig();
             } else if (sectionId === 'settings') {
                 loadSettings();
+            } else if (sectionId === 'metadata') {
+                // 初始化元数据页面
+                document.getElementById('metadataSongsList').innerHTML = '';
+                document.getElementById('metadataForm').style.display = 'none';
             }
         }
 
@@ -1350,6 +1408,620 @@
                 document.getElementById('pageInfo').textContent = `第 ${currentPage} 页`;
                 loadSongs();
             }
+        }
+
+        // 搜索元数据歌曲
+        function searchMetadataSongs() {
+            const query = document.getElementById('metadataSearch').value;
+            console.log('搜索歌曲:', query);
+            console.log('Auth params:', authParams);
+            
+            // 显示加载状态
+            document.getElementById('searchLoading').style.display = 'inline';
+            document.getElementById('searchText').style.display = 'none';
+            document.getElementById('metadataSongsList').innerHTML = '<li>搜索中...</li>';
+            
+            if (!authParams) {
+                console.error('Auth params not set');
+                document.getElementById('metadataSongsList').innerHTML = '<li>请先登录</li>';
+                // 隐藏加载状态
+                document.getElementById('searchLoading').style.display = 'none';
+                document.getElementById('searchText').style.display = 'inline';
+                return;
+            }
+            
+            fetch(`/rest/search3?${authParams}&query=${encodeURIComponent(query)}&songCount=50`)    
+                .then(response => {
+                    console.log('Response status:', response.status);
+                    return response.json();
+                })
+                .then(data => {
+                    console.log('Response data:', data);
+                    if (data['subsonic-response'] && data['subsonic-response'].status === 'ok') {
+                        const searchResult3 = data['subsonic-response'].searchResult3;
+                        const songs = searchResult3 && searchResult3.song;
+                        const songsList = document.getElementById('metadataSongsList');
+                        songsList.innerHTML = '';
+
+                        if (songs && songs.length > 0) {
+                            songs.forEach(song => {
+                                const li = document.createElement('li');
+                                li.style.display = 'flex';
+                                li.style.alignItems = 'center';
+                                li.style.padding = '12px';
+                                li.style.borderBottom = '1px solid #eee';
+                                li.style.transition = 'background-color 0.2s';
+                                li.style.borderRadius = '4px';
+                                li.style.marginBottom = '4px';
+                                li.onmouseover = function() {
+                                    this.style.backgroundColor = '#f9f9f9';
+                                };
+                                li.onmouseout = function() {
+                                    this.style.backgroundColor = '';
+                                };
+                                
+                                const checkbox = document.createElement('input');
+                                checkbox.type = 'checkbox';
+                                checkbox.className = 'song-checkbox';
+                                checkbox.value = song.id;
+                                checkbox.style.marginRight = '10px';
+                                checkbox.style.width = '16px';
+                                checkbox.style.height = '16px';
+                                
+                                const button = document.createElement('button');
+                                button.className = 'btn';
+                                button.textContent = '编辑';
+                                button.style.minWidth = '60px';
+                                button.onclick = function() {
+                                    console.log('点击编辑按钮，歌曲ID:', song.id);
+                                    loadSongMetadata(song.id);
+                                };
+                                
+                                const div = document.createElement('div');
+                                div.style.flex = '1';
+                                div.innerHTML = `
+                                    <strong>${song.title}</strong>
+                                    <br>
+                                    <small style="color: #666;">${song.artist} - ${song.album}</small>
+                                    <br>
+                                    <small style="color: #999;">格式: ${song.format || '未知'} | 时长: ${song.duration || 0}秒</small>
+                                `;
+                                
+                                li.appendChild(checkbox);
+                                li.appendChild(div);
+                                li.appendChild(button);
+                                songsList.appendChild(li);
+                            });
+                        } else {
+                            songsList.innerHTML = '<li style="padding: 20px; text-align: center; color: #999;">没有找到歌曲</li>';
+                        }
+                    } else {
+                        console.error('API response not ok:', data);
+                        document.getElementById('metadataSongsList').innerHTML = '<li style="padding: 20px; text-align: center; color: #ff6b6b;">搜索失败，请重试</li>';
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    document.getElementById('metadataSongsList').innerHTML = `<li style="padding: 20px; text-align: center; color: #ff6b6b;">搜索失败: ${error.message}</li>`;
+                })
+                .finally(() => {
+                    // 隐藏加载状态
+                    document.getElementById('searchLoading').style.display = 'none';
+                    document.getElementById('searchText').style.display = 'inline';
+                });
+        }
+
+        // 加载歌曲元数据
+        function loadSongMetadata(id) {
+            console.log('加载歌曲元数据，ID:', id);
+            
+            // 显示加载状态
+            const metadataForm = document.getElementById('metadataForm');
+            metadataForm.style.display = 'block';
+            metadataForm.innerHTML = '<div style="text-align: center; padding: 40px;"><p>加载中...</p></div>';
+            
+            fetch(`/rest/getSong?${authParams}&id=${id}`)
+                .then(response => {
+                    console.log('Response status:', response.status);
+                    return response.json();
+                })
+                .then(data => {
+                    console.log('Response data:', data);
+                    if (data['subsonic-response'] && data['subsonic-response'].status === 'ok') {
+                        const song = data['subsonic-response'].song;
+                        console.log('歌曲信息:', song);
+                        
+                        // 恢复表单内容
+                        metadataForm.innerHTML = `
+                            <input type="hidden" id="currentSongId">
+                            <div class="form-group" style="margin-bottom: 15px;">
+                                <label for="editTitle" style="display: block; margin-bottom: 5px; font-weight: 500;">标题</label>
+                                <input type="text" id="editTitle" style="width: 100%; padding: 10px; border: 1px solid #ced4da; border-radius: 4px; transition: border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out;">
+                            </div>
+                            <div class="form-group" style="margin-bottom: 15px;">
+                                <label for="editArtist" style="display: block; margin-bottom: 5px; font-weight: 500;">艺术家</label>
+                                <input type="text" id="editArtist" style="width: 100%; padding: 10px; border: 1px solid #ced4da; border-radius: 4px; transition: border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out;">
+                            </div>
+                            <div class="form-group" style="margin-bottom: 15px;">
+                                <label for="editAlbum" style="display: block; margin-bottom: 5px; font-weight: 500;">专辑</label>
+                                <input type="text" id="editAlbum" style="width: 100%; padding: 10px; border: 1px solid #ced4da; border-radius: 4px; transition: border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out;">
+                            </div>
+                            <div class="form-group" style="margin-bottom: 20px;">
+                                <label for="editTrack" style="display: block; margin-bottom: 5px; font-weight: 500;">轨道</label>
+                                <input type="number" id="editTrack" style="width: 100%; padding: 10px; border: 1px solid #ced4da; border-radius: 4px; transition: border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out;">
+                            </div>
+                            <div class="form-group" style="margin-top: 10px;">
+                                <button class="btn" onclick="saveMetadata()" style="padding: 8px 16px; border-radius: 4px; transition: background-color 0.15s ease-in-out;">保存元数据</button>
+                                <button class="btn" onclick="scrapeMetadata()" style="margin-left: 10px; padding: 8px 16px; border-radius: 4px; transition: background-color 0.15s ease-in-out;">刮削元数据</button>
+                            </div>
+                            <div id="metadataResult" style="margin-top: 15px; padding: 10px; border-radius: 4px;"></div>
+                        `;
+                        
+                        // 填充表单数据
+                        document.getElementById('currentSongId').value = song.id;
+                        document.getElementById('editTitle').value = song.title || '';
+                        document.getElementById('editArtist').value = song.artist || '';
+                        document.getElementById('editAlbum').value = song.album || '';
+                        document.getElementById('editTrack').value = song.track || '';
+                        console.log('元数据表单已显示');
+                    } else {
+                        console.error('API response not ok:', data);
+                        metadataForm.innerHTML = '<div style="text-align: center; padding: 40px; color: #ff6b6b;"><p>加载失败，请重试</p></div>';
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    metadataForm.innerHTML = `<div style="text-align: center; padding: 40px; color: #ff6b6b;"><p>加载失败: ${error.message}</p></div>`;
+                });
+        }
+
+        // 保存元数据
+        function saveMetadata() {
+            // 表单验证
+            const id = document.getElementById('currentSongId').value;
+            const title = document.getElementById('editTitle').value.trim();
+            const artist = document.getElementById('editArtist').value.trim();
+            const album = document.getElementById('editAlbum').value.trim();
+            const track = document.getElementById('editTrack').value;
+            const resultDiv = document.getElementById('metadataResult');
+            
+            // 验证必填字段
+            if (!title) {
+                resultDiv.innerHTML = '<p style="color: red;">请输入歌曲标题</p>';
+                setTimeout(() => {
+                    resultDiv.innerHTML = '';
+                }, 2000);
+                return;
+            }
+            
+            if (!artist) {
+                resultDiv.innerHTML = '<p style="color: red;">请输入艺术家名称</p>';
+                setTimeout(() => {
+                    resultDiv.innerHTML = '';
+                }, 2000);
+                return;
+            }
+            
+            // 验证轨道号
+            if (track && isNaN(track)) {
+                resultDiv.innerHTML = '<p style="color: red;">轨道号必须是数字</p>';
+                setTimeout(() => {
+                    resultDiv.innerHTML = '';
+                }, 2000);
+                return;
+            }
+
+            fetch(`/rest/updateSong?${authParams}`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    id: id,
+                    title: title,
+                    artist: artist,
+                    album: album,
+                    track: track
+                })
+            })
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    if (data['subsonic-response'].status === 'ok') {
+                        resultDiv.innerHTML = '<p style="color: green;">元数据保存成功！</p>';
+                        setTimeout(() => {
+                            resultDiv.innerHTML = '';
+                        }, 2000);
+                    } else {
+                        resultDiv.innerHTML = `<p style="color: red;">保存失败：${data['subsonic-response'].error.message}</p>`;
+                        setTimeout(() => {
+                            resultDiv.innerHTML = '';
+                        }, 2000);
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    resultDiv.innerHTML = `<p style="color: red;">保存失败：${error.message}</p>`;
+                    setTimeout(() => {
+                        resultDiv.innerHTML = '';
+                    }, 2000);
+                });
+        }
+
+        // 刮削元数据
+        function scrapeMetadata() {
+            // 检查表单元素是否存在
+            const currentSongIdEl = document.getElementById('currentSongId');
+            const editTitleEl = document.getElementById('editTitle');
+            const editArtistEl = document.getElementById('editArtist');
+            const metadataResultEl = document.getElementById('metadataResult');
+            
+            if (!currentSongIdEl || !editTitleEl || !editArtistEl || !metadataResultEl) {
+                console.error('表单元素不存在');
+                if (metadataResultEl) {
+                    metadataResultEl.innerHTML = '<p style="color: red;">刮削失败：表单未初始化</p>';
+                    setTimeout(() => {
+                        metadataResultEl.innerHTML = '';
+                    }, 2000);
+                }
+                return;
+            }
+            
+            const id = currentSongIdEl.value;
+            const title = editTitleEl.value;
+            const artist = editArtistEl.value;
+
+            fetch(`/rest/scrapeMetadata?${authParams}&id=${id}&title=${encodeURIComponent(title)}&artist=${encodeURIComponent(artist)}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data['subsonic-response'].status === 'ok') {
+                        const metadata = data['subsonic-response'].metadata;
+                        if (metadata) {
+                            // 再次检查元素是否存在
+                            const editTitleEl = document.getElementById('editTitle');
+                            const editArtistEl = document.getElementById('editArtist');
+                            const editAlbumEl = document.getElementById('editAlbum');
+                            const editTrackEl = document.getElementById('editTrack');
+                            
+                            if (editTitleEl) editTitleEl.value = metadata.title || title;
+                            if (editArtistEl) editArtistEl.value = metadata.artist || artist;
+                            if (editAlbumEl) editAlbumEl.value = metadata.album || '';
+                            if (editTrackEl) editTrackEl.value = metadata.track || '';
+                        }
+                        metadataResultEl.innerHTML = '<p style="color: green;">元数据刮削成功！</p>';
+                    } else {
+                        metadataResultEl.innerHTML = `<p style="color: red;">刮削失败：${data['subsonic-response'].error.message}</p>`;
+                    }
+                    setTimeout(() => {
+                        metadataResultEl.innerHTML = '';
+                    }, 2000);
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    if (metadataResultEl) {
+                        metadataResultEl.innerHTML = `<p style="color: red;">刮削失败：${error.message}</p>`;
+                        setTimeout(() => {
+                            metadataResultEl.innerHTML = '';
+                        }, 2000);
+                    }
+                });
+        }
+
+        // 全选歌曲
+        function selectAllSongs() {
+            const checkboxes = document.querySelectorAll('.song-checkbox');
+            checkboxes.forEach(checkbox => {
+                checkbox.checked = true;
+            });
+        }
+
+        // 取消全选歌曲
+        function deselectAllSongs() {
+            const checkboxes = document.querySelectorAll('.song-checkbox');
+            checkboxes.forEach(checkbox => {
+                checkbox.checked = false;
+            });
+        }
+
+        // 批量编辑元数据
+        function batchEditMetadata() {
+            const checkboxes = document.querySelectorAll('.song-checkbox:checked');
+            const selectedIds = Array.from(checkboxes).map(checkbox => checkbox.value);
+            
+            if (selectedIds.length === 0) {
+                alert('请至少选择一首歌曲');
+                return;
+            }
+            
+            // 创建批量编辑表单
+            const batchForm = document.createElement('div');
+            batchForm.id = 'batchMetadataForm';
+            batchForm.style.marginTop = '20px';
+            batchForm.style.padding = '20px';
+            batchForm.style.backgroundColor = '#f9f9f9';
+            batchForm.style.borderRadius = '5px';
+            
+            batchForm.innerHTML = `
+                <h3>批量编辑元数据</h3>
+                <input type="hidden" id="batchSongIds" value="${selectedIds.join(',')}">
+                <div class="form-group">
+                    <label>选择要更新的字段：</label><br>
+                    <input type="checkbox" id="updateTitle"> 标题<br>
+                    <input type="checkbox" id="updateArtist"> 艺术家<br>
+                    <input type="checkbox" id="updateAlbum"> 专辑<br>
+                    <input type="checkbox" id="updateTrack"> 轨道
+                </div>
+                <div class="form-group">
+                    <label for="batchTitle">新标题</label>
+                    <input type="text" id="batchTitle" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 3px;">
+                </div>
+                <div class="form-group">
+                    <label for="batchArtist">新艺术家</label>
+                    <input type="text" id="batchArtist" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 3px;">
+                </div>
+                <div class="form-group">
+                    <label for="batchAlbum">新专辑</label>
+                    <input type="text" id="batchAlbum" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 3px;">
+                </div>
+                <div class="form-group">
+                    <label for="batchTrack">新轨道</label>
+                    <input type="number" id="batchTrack" style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 3px;">
+                </div>
+                <div class="form-group" style="margin-top: 10px;">
+                    <button class="btn" onclick="saveBatchMetadata()">保存批量修改</button>
+                    <button class="btn" onclick="cancelBatchEdit()" style="margin-left: 10px;">取消</button>
+                </div>
+                <div id="batchMetadataResult" style="margin-top: 10px;"></div>
+            `;
+            
+            // 移除旧的批量编辑表单
+            const oldForm = document.getElementById('batchMetadataForm');
+            if (oldForm) {
+                oldForm.remove();
+            }
+            
+            // 添加新的批量编辑表单
+            const metadataSection = document.getElementById('metadata');
+            metadataSection.appendChild(batchForm);
+        }
+
+        // 保存批量元数据
+        function saveBatchMetadata() {
+            const songIds = document.getElementById('batchSongIds').value.split(',');
+            const updateTitle = document.getElementById('updateTitle').checked;
+            const updateArtist = document.getElementById('updateArtist').checked;
+            const updateAlbum = document.getElementById('updateAlbum').checked;
+            const updateTrack = document.getElementById('updateTrack').checked;
+            const resultDiv = document.getElementById('batchMetadataResult');
+            
+            // 验证至少选择了一个要更新的字段
+            if (!updateTitle && !updateArtist && !updateAlbum && !updateTrack) {
+                resultDiv.innerHTML = '<p style="color: red;">请至少选择一个要更新的字段</p>';
+                setTimeout(() => {
+                    resultDiv.innerHTML = '';
+                }, 2000);
+                return;
+            }
+            
+            // 验证字段值
+            const title = updateTitle ? document.getElementById('batchTitle').value.trim() : null;
+            const artist = updateArtist ? document.getElementById('batchArtist').value.trim() : null;
+            const album = updateAlbum ? document.getElementById('batchAlbum').value.trim() : null;
+            const track = updateTrack ? document.getElementById('batchTrack').value : null;
+            
+            if (updateTitle && !title) {
+                resultDiv.innerHTML = '<p style="color: red;">请输入新标题</p>';
+                setTimeout(() => {
+                    resultDiv.innerHTML = '';
+                }, 2000);
+                return;
+            }
+            
+            if (updateArtist && !artist) {
+                resultDiv.innerHTML = '<p style="color: red;">请输入新艺术家名称</p>';
+                setTimeout(() => {
+                    resultDiv.innerHTML = '';
+                }, 2000);
+                return;
+            }
+            
+            if (updateTrack && isNaN(track)) {
+                resultDiv.innerHTML = '<p style="color: red;">轨道号必须是数字</p>';
+                setTimeout(() => {
+                    resultDiv.innerHTML = '';
+                }, 2000);
+                return;
+            }
+            
+            const batchData = {
+                ids: songIds,
+                title: title,
+                artist: artist,
+                album: album,
+                track: track
+            };
+            
+            fetch(`/rest/batchUpdateSong?${authParams}`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(batchData)
+            })
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    if (data['subsonic-response'].status === 'ok') {
+                        resultDiv.innerHTML = '<p style="color: green;">批量更新成功！</p>';
+                        setTimeout(() => {
+                            cancelBatchEdit();
+                            // 重新搜索以更新列表
+                            searchMetadataSongs();
+                        }, 2000);
+                    } else {
+                        resultDiv.innerHTML = `<p style="color: red;">批量更新失败：${data['subsonic-response'].error.message}</p>`;
+                        setTimeout(() => {
+                            resultDiv.innerHTML = '';
+                        }, 2000);
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    resultDiv.innerHTML = `<p style="color: red;">批量更新失败：${error.message}</p>`;
+                    setTimeout(() => {
+                        resultDiv.innerHTML = '';
+                    }, 2000);
+                });
+        }
+
+        // 取消批量编辑
+        function cancelBatchEdit() {
+            const batchForm = document.getElementById('batchMetadataForm');
+            if (batchForm) {
+                batchForm.remove();
+            }
+        }
+
+        // 导出元数据
+        function exportMetadata() {
+            const checkboxes = document.querySelectorAll('.song-checkbox:checked');
+            const selectedIds = Array.from(checkboxes).map(checkbox => checkbox.value);
+            
+            if (selectedIds.length === 0) {
+                alert('请至少选择一首歌曲');
+                return;
+            }
+            
+            // 构建导出数据
+            const exportData = {
+                songs: [],
+                exportDate: new Date().toISOString()
+            };
+            
+            // 对每个选中的歌曲获取详细信息
+            let processedCount = 0;
+            
+            selectedIds.forEach(id => {
+                fetch(`/rest/getSong?${authParams}&id=${id}`)
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data['subsonic-response'].status === 'ok') {
+                            const song = data['subsonic-response'].song;
+                            exportData.songs.push({
+                                id: song.id,
+                                title: song.title,
+                                artist: song.artist,
+                                album: song.album,
+                                track: song.track
+                            });
+                        }
+                        processedCount++;
+                        
+                        if (processedCount === selectedIds.length) {
+                            // 导出为JSON文件
+                            const jsonContent = JSON.stringify(exportData, null, 2);
+                            const blob = new Blob([jsonContent], { type: 'application/json' });
+                            const url = URL.createObjectURL(blob);
+                            const a = document.createElement('a');
+                            a.href = url;
+                            a.download = `metadata-export-${new Date().toISOString().slice(0, 10)}.json`;
+                            document.body.appendChild(a);
+                            a.click();
+                            document.body.removeChild(a);
+                            URL.revokeObjectURL(url);
+                            
+                            alert('元数据导出成功！');
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error exporting metadata:', error);
+                        processedCount++;
+                        if (processedCount === selectedIds.length) {
+                            alert('部分歌曲导出失败');
+                        }
+                    });
+            });
+        }
+
+        // 导入元数据
+        function importMetadata() {
+            // 创建文件输入元素
+            const input = document.createElement('input');
+            input.type = 'file';
+            input.accept = '.json';
+            
+            input.onchange = function(e) {
+                const file = e.target.files[0];
+                if (!file) return;
+                
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    try {
+                        const importData = JSON.parse(e.target.result);
+                        
+                        if (!importData.songs || !Array.isArray(importData.songs)) {
+                            alert('无效的导入文件格式');
+                            return;
+                        }
+                        
+                        // 对每个歌曲更新元数据
+                        let successCount = 0;
+                        let errorCount = 0;
+                        
+                        importData.songs.forEach(song => {
+                            fetch(`/rest/updateSong?${authParams}`, {
+                                method: 'POST',
+                                headers: {
+                                    'Content-Type': 'application/json'
+                                },
+                                body: JSON.stringify({
+                                    id: song.id,
+                                    title: song.title,
+                                    artist: song.artist,
+                                    album: song.album,
+                                    track: song.track
+                                })
+                            })
+                            .then(response => response.json())
+                            .then(data => {
+                                if (data['subsonic-response'].status === 'ok') {
+                                    successCount++;
+                                } else {
+                                    errorCount++;
+                                }
+                                
+                                if (successCount + errorCount === importData.songs.length) {
+                                    alert(`元数据导入完成！成功: ${successCount}, 失败: ${errorCount}`);
+                                    // 重新搜索以更新列表
+                                    searchMetadataSongs();
+                                }
+                            })
+                            .catch(error => {
+                                console.error('Error importing metadata:', error);
+                                errorCount++;
+                                if (successCount + errorCount === importData.songs.length) {
+                                    alert(`元数据导入完成！成功: ${successCount}, 失败: ${errorCount}`);
+                                    searchMetadataSongs();
+                                }
+                            });
+                        });
+                    } catch (error) {
+                        console.error('Error parsing import file:', error);
+                        alert('导入文件解析失败');
+                    }
+                };
+                reader.readAsText(file);
+            };
+            
+            input.click();
         }
 
         // 上传音乐
